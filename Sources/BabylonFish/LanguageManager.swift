@@ -35,7 +35,8 @@ class LanguageManager {
         "ра", "го", "ко", "ов", "во", "ли", "ре", "ос", "од", "ва", "де", "ес", "за", "ль",
         "ль", "ел", "ем", "ен", "ер", "ес", "ет", "еч", "ею", "ея",
         "ом", "он", "оп", "ор", "ос", "от", "оф", "ох", "оц", "оч", "ош", "ощ", "ою", "оя",
-        "ам", "ан", "ап", "ар", "ас", "ат", "аф", "ах", "ац", "ач", "аш", "ащ", "аю", "ая"
+        "ам", "ан", "ап", "ар", "ас", "ат", "аф", "ах", "ац", "ач", "аш", "ащ", "аю", "ая",
+        "др", "ру", "уг", "га" // drug, druga
     ]
     
     let commonEnBigrams: Set<String> = [
@@ -69,7 +70,8 @@ class LanguageManager {
         "вот","вон","это","эта","этот","эти","тот","та","те","то","те",
         "мой","моя","моё","мои","твой","твоя","твоё","твои","наш","ващ",
         "спс","пжл","плз","ок","да","нет","мб","хз","лол","омг","втф","имхо",
-        "прив","пок","ку","хай","йо","че","чо","шо","ща","щас","щаз"
+        "прив","пок","ку","хай","йо","че","чо","шо","ща","щас","щаз",
+        "друг"
     ]
     
     let ruSingletonLetters: Set<String> = [
@@ -332,8 +334,9 @@ class LanguageManager {
             }
             
             // If it's effectively removed from user learning (or never was there), check if we need to ignore it
-            if (!foundInUser || remainingCount == 0) && commonEnglishWords.contains(enLower) {
-                 logDebug("Adding common EN word to exceptions: \(enLower)")
+            // FORCE ignore if unlearned count hits 0 (user explicitly rejected it)
+            if !foundInUser || remainingCount == 0 {
+                 logDebug("Adding EN word to exceptions (rejected by user): \(enLower)")
                  ignoredWords.insert(enLower)
                  UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
             }
@@ -352,8 +355,9 @@ class LanguageManager {
             }
             
             // If it's effectively removed from user learning (or never was there), check if we need to ignore it
-            if (!foundInUser || remainingCount == 0) && commonRuShortWords.contains(ruLower) {
-                 logDebug("Adding common RU word to exceptions: \(ruLower)")
+            // FORCE ignore if unlearned count hits 0 (user explicitly rejected it)
+            if !foundInUser || remainingCount == 0 {
+                 logDebug("Adding RU word to exceptions (rejected by user): \(ruLower)")
                  ignoredWords.insert(ruLower)
                  UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
             }

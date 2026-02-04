@@ -624,13 +624,36 @@ class InputListener {
     }
 
     private func performDoubleShiftAction() {
-        // 1. Try to get currently selected text
+        // 1. Try to get currently selected text (AX API)
         var selectedText = getSelectedText()
-        
-        // If no text is selected, try to select the last word
         var didSelectWord = false
+        
+        // 2. If no selection found via AX, check if maybe AX failed but user HAS selection?
+        // It's hard to know.
+        // Strategy:
+        // - If getSelectedText() returns nil, we don't know if it's "no selection" or "AX broken".
+        // - If we proceed to "select last word", we destroy user's selection if they had one.
+        // - So, let's try Cmd+C first as a non-destructive(ish) check for existing selection?
+        //   (Cmd+C overwrites clipboard, but better than losing selection in UI).
+        
         if selectedText == nil || selectedText?.isEmpty == true {
-            logDebug("Double Shift: No selection. Selecting last word...")
+             // Fallback 1: Try copying whatever is selected (assuming AX failed)
+             logDebug("Double Shift: AX returned nil. Trying Cmd+C fallback...")
+             let oldClip = getClipboardString()
+             simulateCmdC()
+             usleep(50000) // 50ms
+             let newClip = getClipboardString()
+             
+             if let new = newClip, !new.isEmpty, new != oldClip {
+                 // Success! User had something selected.
+                 selectedText = new
+                 logDebug("Double Shift: Retrieved selection via Cmd+C: \(new.prefix(20))...")
+             }
+        }
+        
+        // 3. If STILL no text, assume user truly selected nothing -> Select Last Word
+        if selectedText == nil || selectedText?.isEmpty == true {
+            logDebug("Double Shift: No selection found (AX & Cmd+C). Selecting last word...")
             simulateSelectLastWord()
             
             // Wait for selection to apply (increased to 100ms)
@@ -638,9 +661,8 @@ class InputListener {
             
             selectedText = getSelectedText()
             
-            // If still empty, try clipboard fallback for selection
+            // If still empty, try clipboard fallback for NEW selection
             if selectedText == nil || selectedText?.isEmpty == true {
-                 // Try copying
                  simulateCmdC()
                  usleep(50000)
                  selectedText = getClipboardString()
@@ -659,13 +681,13 @@ class InputListener {
         
         logDebug("Double Shift: Converting text: \(text)")
         
-        // 2. Convert Text
+        // 4. Convert Text (Preserving Case)
         let convertedText = convertTextLayout(text)
         
-        // 3. Replace Text
+        // 5. Replace Text
         replaceSelectedText(with: convertedText)
         
-        // 4. Switch Layout
+        // 6. Switch Layout
         if let current = getCurrentInputSourceId() {
             if current.contains("Russian") {
                 _ = switchToInputSourceContaining("English")
@@ -829,25 +851,25 @@ class InputListener {
     
     private func convertTextLayout(_ text: String) -> String {
         var result = ""
-        // This is reverse mapping. We have chars, we need to find the keycode, then map to other lang.
-        // This is O(N*M) unless we build a reverse map.
-        // For demo, we iterate.
         
         for char in text {
-            let s = String(char).lowercased()
+            let s = String(char)
+            let lowerS = s.lowercased()
+            let isUpper = (s != lowerS)
+            
             var found = false
             for (_, (en, ru)) in KeyMapper.shared.map {
-                if en == s {
-                    result += ru
+                if en == lowerS {
+                    result += isUpper ? ru.uppercased() : ru
                     found = true
                     break
-                } else if ru == s {
-                    result += en
+                } else if ru == lowerS {
+                    result += isUpper ? en.uppercased() : en
                     found = true
                     break
                 }
             }
-            if !found { result += String(char) }
+            if !found { result += s }
         }
         return result
     }
