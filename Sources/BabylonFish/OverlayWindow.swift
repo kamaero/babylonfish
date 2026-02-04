@@ -40,18 +40,22 @@ class OverlayWindow: NSWindow {
         DispatchQueue.main.async {
             self.stopFade()
             
-            guard let frame = self.getActiveWindowFrame() else {
-                // Fallback to screen bounds if no window found
+            var targetFrame: NSRect?
+            
+            if let frame = self.getActiveWindowFrame() {
+                // Add some padding
+                targetFrame = frame.insetBy(dx: -6, dy: -6)
+            } else {
+                // Fallback to screen bounds if no window found (e.g. Accessibility permission missing)
                 if let screen = NSScreen.main {
-                     self.setFrame(screen.visibleFrame, display: true)
+                     // Show a visible border around the screen
+                     targetFrame = screen.visibleFrame.insetBy(dx: 10, dy: 10)
                 }
-                return
             }
             
-            // Add some padding
-            let paddedFrame = frame.insetBy(dx: -6, dy: -6)
-            self.setFrame(paddedFrame, display: true)
+            guard let finalFrame = targetFrame else { return }
             
+            self.setFrame(finalFrame, display: true)
             self.borderView.borderColor = color
             self.alphaValue = 1.0
             self.orderFront(nil)
