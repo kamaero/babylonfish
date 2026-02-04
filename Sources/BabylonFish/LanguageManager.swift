@@ -1,4 +1,5 @@
 import Foundation
+import Cocoa // For NSSpellChecker
 
 enum Language {
     case english
@@ -14,6 +15,9 @@ class LanguageManager {
     private var userWordsEN: [String: Int] = [:]
     private var userWordsRU: [String: Int] = [:]
     private var ignoredWords: Set<String> = []
+    
+    // NSSpellChecker instance
+    private let spellChecker = NSSpellChecker.shared
     
     private init() {
         if let en = UserDefaults.standard.dictionary(forKey: enUserKey) as? [String: Int] {
@@ -71,7 +75,7 @@ class LanguageManager {
         "мой","моя","моё","мои","твой","твоя","твоё","твои","наш","ващ",
         "спс","пжл","плз","ок","да","нет","мб","хз","лол","омг","втф","имхо",
         "прив","пок","ку","хай","йо","че","чо","шо","ща","щас","щаз",
-        "друг"
+        "друг", "рыбка", "эту"
     ]
     
     let ruSingletonLetters: Set<String> = [
@@ -183,6 +187,19 @@ class LanguageManager {
         return nil
     }
 
+    // Helper: Check if word exists in system dictionary
+    private func isSystemWord(_ word: String, language: String) -> Bool {
+        // "en_US" or "ru_RU"
+        // setLanguage is not thread safe? checkSpelling is better
+        // checkSpelling returns range of misspelled word. If NSNotFound, it's correct.
+        
+        // Use a temp checker or shared? Shared is fine for main thread.
+        // We are on main thread usually (EventTap callback).
+        
+        let range = spellChecker.checkSpelling(of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
+        return range.location == NSNotFound
+    }
+
     func detectLanguage(for keyCodes: [Int]) -> Language? {
         guard keyCodes.count >= 1 else { return nil }
         
@@ -202,10 +219,40 @@ class LanguageManager {
         let ruLower = ruString.lowercased()
         let count = keyCodes.count
         
-        // 0. Check Exceptions
+        // 1. Check common dictionaries (Fast Path)
+        if commonRuShortWords.contains(ruLower) {
+            logDebug("Common Russian Short Word Match: \(ruLower)")
+            return .russian
+        }
+        
+        if commonEnglishWords.contains(enLower) {
+            logDebug("Common English Word Match: \(enLower)")
+            return .english
+        }
+        
+        // 2. Check Exceptions (Ignored words)
         if ignoredWords.contains(enLower) || ignoredWords.contains(ruLower) {
             logDebug("Ignored word detected: \(enLower)/\(ruLower)")
             return nil
+        }
+        
+        // 3. System Dictionary Check (The "ML/Big Dictionary" Layer)
+        // Check RU
+        let isRuValid = isSystemWord(ruLower, language: "ru_RU")
+        let isEnValid = isSystemWord(enLower, language: "en_US")
+        
+        if isRuValid && !isEnValid {
+            logDebug("System Dictionary: RU Valid ('\(ruLower)'), EN Invalid -> RU")
+            return .russian
+        }
+        
+        if isEnValid && !isRuValid {
+            logDebug("System Dictionary: EN Valid ('\(enLower)'), RU Invalid -> EN")
+            return .english
+        }
+        
+        if isRuValid && isEnValid {
+            logDebug("System Dictionary: Both Valid ('\(ruLower)' / '\(enLower)'). Falling back to bigrams/heuristics.")
         }
         
         if count == 1 {
@@ -222,7 +269,7 @@ class LanguageManager {
             }
         }
         
-        // 1. Check strict impossible/strong indicators
+        // 3. Check strict impossible/strong indicators
         // Check for strong matches in the *beginning* or *end* of the string
         // Actually, just substring check is fine for short buffers
         
@@ -240,20 +287,7 @@ class LanguageManager {
             }
         }
         
-        // 2. Check common dictionaries (Prioritize explicit common words over learned behavior)
-        // This fixes cases where "tot" is learned but "еще" is common
-        
-        if commonRuShortWords.contains(ruLower) {
-            logDebug("Common Russian Short Word Match: \(ruLower)")
-            return .russian
-        }
-        
-        if commonEnglishWords.contains(enLower) {
-            logDebug("Common English Word Match: \(enLower)")
-            return .english
-        }
-        
-        // 3. Check user-learned words
+        // 4. Check user-learned words
         if let enCount = userWordsEN[enLower], enCount >= 2 {
             logDebug("User Learned Word (EN): \(enLower) count=\(enCount)")
             return .english
