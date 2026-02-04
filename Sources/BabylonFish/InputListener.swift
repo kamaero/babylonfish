@@ -185,6 +185,9 @@ class InputListener {
     }
     
     private func handleKeyDown(_ event: CGEvent, proxy: CGEventTapProxy) -> Unmanaged<CGEvent>? {
+        // Notify overlay that typing started
+        OverlayWindow.shared.notifyTyping()
+        
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) == 1
         
@@ -616,32 +619,79 @@ class InputListener {
     }
     
     private func handleDoubleShift() {
-        // 1. Get Selected Text
+        DispatchQueue.global(qos: .userInteractive).async {
+            self.performDoubleShiftAction()
+        }
+    }
+
+    private func performDoubleShiftAction() {
+        // 1. Try to get currently selected text
         var selectedText = getSelectedText()
         
-        if selectedText == nil {
-            selectedText = getSelectedTextViaClipboard()
+        // If no text is selected, try to select the last word
+        var didSelectWord = false
+        if selectedText == nil || selectedText?.isEmpty == true {
+            logDebug("Double Shift: No selection. Selecting last word...")
+            simulateSelectLastWord()
+            
+            // Wait for selection to apply (50ms)
+            usleep(50000)
+            
+            selectedText = getSelectedText()
+            didSelectWord = true
         }
         
-        guard let text = selectedText, !text.isEmpty else { return }
+        guard let text = selectedText, !text.isEmpty else {
+            // If we tried to select but failed, restore cursor
+            if didSelectWord {
+                simulateRightArrow()
+            }
+            return
+        }
         
-        // 2. Convert Text (Simple char mapping inversion)
+        logDebug("Double Shift: Converting text: \(text)")
+        
+        // 2. Convert Text
         let convertedText = convertTextLayout(text)
         
         // 3. Replace Text
         replaceSelectedText(with: convertedText)
         
-        // 4. Switch Layout globally too? Yes.
-        // For double shift, we just toggle to the other one.
+        // 4. Switch Layout
         if let current = getCurrentInputSourceId() {
             if current.contains("Russian") {
-                _ = switchToInputSourceContaining("English") // or US
+                _ = switchToInputSourceContaining("English")
             } else {
                 _ = switchToInputSourceContaining("Russian")
             }
         }
     }
     
+    private func simulateSelectLastWord() {
+        // Option (58) + Shift (56) + LeftArrow (123)
+        // We set flags directly on the event
+        let src = CGEventSource(stateID: .hidSystemState)
+        
+        let leftDown = CGEvent(keyboardEventSource: src, virtualKey: 123, keyDown: true)
+        let leftUp = CGEvent(keyboardEventSource: src, virtualKey: 123, keyDown: false)
+        
+        let flags: CGEventFlags = [.maskAlternate, .maskShift]
+        leftDown?.flags = flags
+        leftUp?.flags = flags
+        
+        leftDown?.post(tap: .cghidEventTap)
+        leftUp?.post(tap: .cghidEventTap)
+    }
+    
+    private func simulateRightArrow() {
+        let src = CGEventSource(stateID: .hidSystemState)
+        let rightDown = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: true)
+        let rightUp = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: false)
+        
+        rightDown?.post(tap: .cghidEventTap)
+        rightUp?.post(tap: .cghidEventTap)
+    }
+
     private func getSelectedTextViaClipboard() -> String? {
         let pasteboard = NSPasteboard.general
         _ = pasteboard.changeCount

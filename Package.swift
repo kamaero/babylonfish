@@ -20,7 +20,7 @@ let package = Package(
         .executableTarget(
             name: "BabylonFish",
             dependencies: [],
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources"],
             resources: [
                 // .process("Resources")
             ],

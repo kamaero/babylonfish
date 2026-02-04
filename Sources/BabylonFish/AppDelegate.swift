@@ -206,6 +206,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func inputSourceChanged() {
         updateIcon()
+        
+        // Show Visual Border
+        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
+        let sourceIDPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+        
+        if let ptr = sourceIDPtr {
+            let id = Unmanaged<CFString>.fromOpaque(ptr).takeUnretainedValue() as String
+            if id.contains("Russian") {
+                // Blue for Russian
+                OverlayWindow.shared.flash(color: .systemBlue)
+            } else if id.contains("US") || id.contains("English") {
+                // Red for English
+                OverlayWindow.shared.flash(color: .systemRed)
+            }
+        }
     }
     
     func updateIcon() {
@@ -266,6 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct SettingsView: View {
     @AppStorage("autoSwitchEnabled") private var autoSwitchEnabled = true
+    @AppStorage("startAtLogin") private var startAtLogin = false
     @State private var newException = ""
     @AppStorage("exceptions") private var exceptionsData: Data = Data()
     
@@ -275,6 +291,12 @@ struct SettingsView: View {
         VStack(alignment: .leading) {
             Toggle("Enable Auto-Switching", isOn: $autoSwitchEnabled)
                 .toggleStyle(SwitchToggleStyle())
+            
+            Toggle("Start at Login", isOn: $startAtLogin)
+                .toggleStyle(SwitchToggleStyle())
+                .onChange(of: startAtLogin) { newValue in
+                    toggleLaunchAtLogin(newValue)
+                }
                 .padding(.bottom)
             
             Text("Exceptions (Applications or Words):")
@@ -307,7 +329,11 @@ struct SettingsView: View {
         }
         .padding()
         .frame(width: 500, height: 400)
-        .onAppear(perform: loadExceptions)
+        .onAppear {
+            loadExceptions()
+            // Check actual status
+            startAtLogin = isLaunchAtLoginEnabled()
+        }
     }
     
     func deleteException(at offsets: IndexSet) {
@@ -324,6 +350,70 @@ struct SettingsView: View {
     func loadExceptions() {
         if let loaded = try? JSONDecoder().decode([String].self, from: exceptionsData) {
             exceptions = loaded
+        }
+    }
+    
+    // MARK: - Launch at Login Logic
+    // Using LaunchAgent plist for robustness with non-sandboxed app
+    
+    private var launchAgentURL: URL {
+        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
+        let launchAgents = library.appendingPathComponent("LaunchAgents")
+        return launchAgents.appendingPathComponent("com.babylonfish.app.plist")
+    }
+    
+    private func isLaunchAtLoginEnabled() -> Bool {
+        return FileManager.default.fileExists(atPath: launchAgentURL.path)
+    }
+    
+    private func toggleLaunchAtLogin(_ enabled: Bool) {
+        let fileManager = FileManager.default
+        let url = launchAgentURL
+        
+        if enabled {
+            // Create LaunchAgent plist
+            let execPath = Bundle.main.bundlePath + "/Contents/MacOS/BabylonFish"
+            let plistContent = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Label</key>
+                <string>com.babylonfish.app</string>
+                <key>ProgramArguments</key>
+                <array>
+                    <string>\(execPath)</string>
+                </array>
+                <key>RunAtLoad</key>
+                <true/>
+                <key>KeepAlive</key>
+                <false/>
+            </dict>
+            </plist>
+            """
+            
+            do {
+                // Ensure directory exists
+                let launchAgentsDir = url.deletingLastPathComponent()
+                if !fileManager.fileExists(atPath: launchAgentsDir.path) {
+                    try fileManager.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
+                }
+                
+                try plistContent.write(to: url, atomically: true, encoding: .utf8)
+                logDebug("LaunchAgent created at \(url.path)")
+            } catch {
+                logDebug("Failed to create LaunchAgent: \(error)")
+            }
+        } else {
+            // Remove LaunchAgent plist
+            do {
+                if fileManager.fileExists(atPath: url.path) {
+                    try fileManager.removeItem(at: url)
+                    logDebug("LaunchAgent removed")
+                }
+            } catch {
+                logDebug("Failed to remove LaunchAgent: \(error)")
+            }
         }
     }
 }
