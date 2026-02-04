@@ -185,8 +185,7 @@ class InputListener {
     }
     
     private func handleKeyDown(_ event: CGEvent, proxy: CGEventTapProxy) -> Unmanaged<CGEvent>? {
-        // Notify overlay that typing started
-        OverlayWindow.shared.notifyTyping()
+        // OverlayWindow removed
         
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
         let isAutoRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) == 1
@@ -634,10 +633,19 @@ class InputListener {
             logDebug("Double Shift: No selection. Selecting last word...")
             simulateSelectLastWord()
             
-            // Wait for selection to apply (50ms)
-            usleep(50000)
+            // Wait for selection to apply (increased to 100ms)
+            usleep(100000)
             
             selectedText = getSelectedText()
+            
+            // If still empty, try clipboard fallback for selection
+            if selectedText == nil || selectedText?.isEmpty == true {
+                 // Try copying
+                 simulateCmdC()
+                 usleep(50000)
+                 selectedText = getClipboardString()
+            }
+            
             didSelectWord = true
         }
         
@@ -669,7 +677,6 @@ class InputListener {
     
     private func simulateSelectLastWord() {
         // Option (58) + Shift (56) + LeftArrow (123)
-        // We set flags directly on the event
         let src = CGEventSource(stateID: .hidSystemState)
         
         let leftDown = CGEvent(keyboardEventSource: src, virtualKey: 123, keyDown: true)
@@ -678,6 +685,10 @@ class InputListener {
         let flags: CGEventFlags = [.maskAlternate, .maskShift]
         leftDown?.flags = flags
         leftUp?.flags = flags
+        
+        // Mark as synthesized
+        leftDown?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
+        leftUp?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
         
         leftDown?.post(tap: .cghidEventTap)
         leftUp?.post(tap: .cghidEventTap)
@@ -688,8 +699,30 @@ class InputListener {
         let rightDown = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: true)
         let rightUp = CGEvent(keyboardEventSource: src, virtualKey: 124, keyDown: false)
         
+        rightDown?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
+        rightUp?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
+        
         rightDown?.post(tap: .cghidEventTap)
         rightUp?.post(tap: .cghidEventTap)
+    }
+    
+    private func simulateCmdC() {
+        let src = CGEventSource(stateID: .hidSystemState)
+        let cDown = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: true)
+        let cUp = CGEvent(keyboardEventSource: src, virtualKey: 8, keyDown: false)
+        
+        cDown?.flags = .maskCommand
+        cUp?.flags = .maskCommand
+        
+        cDown?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
+        cUp?.setIntegerValueField(.eventSourceUserData, value: 0xBAB7)
+        
+        cDown?.post(tap: .cghidEventTap)
+        cUp?.post(tap: .cghidEventTap)
+    }
+    
+    private func getClipboardString() -> String? {
+        return NSPasteboard.general.string(forType: .string)
     }
 
     private func getSelectedTextViaClipboard() -> String? {

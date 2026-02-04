@@ -132,39 +132,79 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func ensurePermissionsAndStart() {
-        let axGranted = hasAccessibility(prompt: true)
-        let imGranted = hasInputMonitoring()
-        logDebug("Checking permissions: AX=\(axGranted) IM=\(imGranted)")
+        // 1. Check Accessibility (Trusted Process)
+        // Do NOT prompt immediately. Check status first.
+        let axGranted = hasAccessibility(prompt: false)
         
         if !axGranted {
-            logDebug("Accessibility permission missing. Showing alert.")
-            showPermissionsAlert()
-            scheduleRetry()
+            logDebug("Accessibility permission missing. Showing welcome/instruction window.")
+            showWelcomeWindow()
+            return
+        }
+        
+        // 2. Start Listener (Requires Accessibility)
+        // This might trigger Input Monitoring alert if not granted?
+        // Actually, creating EventTap triggers Input Monitoring.
+        // We should check if we have it before creating? 
+        // IOHIDCheckAccess check is reliable.
+        
+        let imGranted = hasInputMonitoring()
+        if !imGranted {
+            logDebug("Input Monitoring permission missing. Showing welcome/instruction window.")
+            showWelcomeWindow()
             return
         }
 
+        // Permissions OK. Start.
+        startAppLogic()
+    }
+    
+    private func startAppLogic() {
         inputListener = InputListener()
         inputListener?.suggestionWindow = suggestionWindow
         let success = inputListener?.start() ?? false
+        
         if !success {
-            logDebug("InputListener failed to start (likely Accessibility permission missing).")
+            logDebug("InputListener failed to start despite permissions checks. Retrying...")
             scheduleRetry()
+        } else {
+             logDebug("BabylonFish started successfully!")
         }
-        checkInputMonitoringPermissions()
+    }
+
+    private func showWelcomeWindow() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Welcome to BabylonFish! 🐠"
+            alert.informativeText = "To catch your typos, I need two permissions:\n\n1. Accessibility (to see what window is active)\n2. Input Monitoring (to catch keys)\n\nPlease click 'Open Settings', then toggle the switches for BabylonFish."
+            alert.alertStyle = .informational
+            alert.addButton(withTitle: "Open Settings")
+            alert.addButton(withTitle: "Quit")
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                // Open both if possible, or just Security root
+                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                NSWorkspace.shared.open(url)
+                
+                // Start a timer to check for permissions
+                self.scheduleRetry()
+            } else {
+                NSApplication.shared.terminate(nil)
+            }
+        }
     }
 
     private func scheduleRetry() {
         retryTimer?.invalidate()
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            // Don't prompt repeatedly in the timer
-            if self.hasAccessibility(prompt: false), self.hasInputMonitoring() {
+            
+            // Check permissions silently
+            if self.hasAccessibility(prompt: false) && self.hasInputMonitoring() {
                 self.retryTimer?.invalidate()
                 self.retryTimer = nil
-                self.inputListener = InputListener()
-                self.inputListener?.suggestionWindow = self.suggestionWindow
-                let ok = self.inputListener?.start() ?? false
-                logDebug("Retry start InputListener, success=\(ok)")
+                self.startAppLogic()
             }
         }
     }
@@ -206,21 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc func inputSourceChanged() {
         updateIcon()
-        
-        // Show Visual Border
-        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        let sourceIDPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
-        
-        if let ptr = sourceIDPtr {
-            let id = Unmanaged<CFString>.fromOpaque(ptr).takeUnretainedValue() as String
-            if id.contains("Russian") {
-                // Blue for Russian
-                OverlayWindow.shared.flash(color: .systemBlue)
-            } else if id.contains("US") || id.contains("English") {
-                // Red for English
-                OverlayWindow.shared.flash(color: .systemRed)
-            }
-        }
+        // Overlay removed
     }
     
     func updateIcon() {
