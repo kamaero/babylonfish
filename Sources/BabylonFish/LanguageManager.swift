@@ -319,8 +319,13 @@ class LanguageManager {
         var remainingCount = 0
         var foundInUser = false
         
+        // "Inverse Learning": If user rejected one language, they likely wanted the other.
+        // If we unlearn EN, we should learn RU.
+        // If we unlearn RU, we should learn EN.
+        
         switch target {
         case .english:
+            // 1. Unlearn English
             if let count = userWordsEN[enLower], count > 0 {
                 foundInUser = true
                 remainingCount = count - 1
@@ -341,7 +346,18 @@ class LanguageManager {
                  UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
             }
             
+            // 2. Implicitly Learn Russian (Active Learning)
+            // If the user rejected EN "lheu" (keys for "друг"), they probably wanted RU "друг".
+            // Only learn if it's not already in common words (to avoid bloating user dict)
+            if !commonRuShortWords.contains(ruLower) {
+                let val = (userWordsRU[ruLower] ?? 0) + 1
+                userWordsRU[ruLower] = val
+                UserDefaults.standard.set(userWordsRU, forKey: ruUserKey)
+                logDebug("Implicitly Learned RU word (via rejection): \(ruLower) -> \(val)")
+            }
+            
         case .russian:
+            // 1. Unlearn Russian
             if let count = userWordsRU[ruLower], count > 0 {
                 foundInUser = true
                 remainingCount = count - 1
@@ -361,6 +377,14 @@ class LanguageManager {
                  ignoredWords.insert(ruLower)
                  UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
             }
+            
+            // 2. Implicitly Learn English (Active Learning)
+            if !commonEnglishWords.contains(enLower) {
+                let val = (userWordsEN[enLower] ?? 0) + 1
+                userWordsEN[enLower] = val
+                UserDefaults.standard.set(userWordsEN, forKey: enUserKey)
+                logDebug("Implicitly Learned EN word (via rejection): \(enLower) -> \(val)")
+            }
         }
     }
     
@@ -369,10 +393,27 @@ class LanguageManager {
         let chars = Array(text)
         if chars.count < 2 { return 0 }
         
+        // Weighted scoring: First bigram gets +2 bonus
+        // User logic: "Mistakes happen at start" -> Start matches are more important?
+        // Actually, if I start typing "gh" (pr) -> "ghiv" (priv), the start is strong RU indicator (if gh is impossible in EN start).
+        // But here we check against "Common Bigrams".
+        // If "gh" is common in EN? Yes (ghost).
+        // If "pr" is common in RU? Yes (privet).
+        
+        // Let's just give extra weight to the first 2 bigrams to align with user intuition.
+        
         for i in 0..<(chars.count - 1) {
             let bigram = String(chars[i...i+1])
             if dictionary.contains(bigram) {
-                count += 1
+                // Base score
+                var score = 1
+                
+                // Bonus for start of word (first 2 bigrams)
+                if i < 2 {
+                    score += 2 // Total 3
+                }
+                
+                count += score
             }
         }
         return count
