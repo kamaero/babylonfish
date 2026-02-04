@@ -41,4 +41,4 @@ cd babylonfish
 MIT. Делайте с ней что хотите, только кормите вовремя (обновляйте macOS).
 
 ---
-*Inspired by Douglas Adams & frustrations with keyboard layouts.*
+*Inspired by Douglas Adams, Alexander Rudazov & frustrations with keyboard layouts.*
