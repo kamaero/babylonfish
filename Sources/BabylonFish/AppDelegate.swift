@@ -230,12 +230,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func drawIcon(flag: String?) -> NSImage {
         let size = NSSize(width: 26, height: 22)
         let img = NSImage(size: size)
+        
+        // Try to load custom icon
+        var customIcon: NSImage?
+        if let path = Bundle.main.path(forResource: "tray_icon", ofType: "png") {
+            customIcon = NSImage(contentsOfFile: path)
+        }
+        
         img.lockFocus()
         
-        // Draw Fish
-        let fish = "🐠" as NSString
-        let fishAttrs = [NSAttributedString.Key.font: NSFont.systemFont(ofSize: 16)]
-        fish.draw(at: NSPoint(x: 0, y: 1), withAttributes: fishAttrs)
+        if let icon = customIcon {
+            // Draw custom icon resized to fit
+            // Keep aspect ratio, fit within 20x20
+            let rect = NSRect(x: 0, y: 2, width: 18, height: 18)
+            icon.draw(in: rect)
+        } else {
+            // Draw Fish (Fallback)
+            let fish = "🐠" as NSString
+            let fishAttrs = [NSAttributedString.Key.font: NSFont.systemFont(ofSize: 16)]
+            fish.draw(at: NSPoint(x: 0, y: 1), withAttributes: fishAttrs)
+        }
         
         // Draw Flag if available
         if let flag = flag {

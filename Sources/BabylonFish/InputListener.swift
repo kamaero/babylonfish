@@ -35,6 +35,17 @@ class InputListener {
     private var lastBoundaryAt: TimeInterval = 0
     private let boundaryDebounce: TimeInterval = 0.12
     
+    // Undo Learning
+    private struct LastSwitchInfo {
+        let timestamp: TimeInterval
+        let targetLang: Language
+        let enWord: String
+        let ruWord: String
+        let length: Int
+    }
+    private var lastSwitch: LastSwitchInfo?
+    private var consecutiveBackspaceCount = 0
+    
     weak var suggestionWindow: SuggestionWindow?
     private var currentSuggestion: String?
     
@@ -182,18 +193,25 @@ class InputListener {
         // If Command or Control is pressed, we probably shouldn't track this word.
         if event.flags.contains(.maskCommand) || event.flags.contains(.maskControl) {
             keyBuffer.removeAll()
+            consecutiveBackspaceCount = 0
             return Unmanaged.passRetained(event)
         }
 
         // 1. Handle Special Keys
         // Backspace (51)
         if keyCode == 51 {
+            consecutiveBackspaceCount += 1
+            checkUndoLearning()
+            
             if !keyBuffer.isEmpty {
                 keyBuffer.removeLast()
             }
             updateSuggestion()
             return Unmanaged.passRetained(event)
         }
+        
+        // Any other key resets the backspace count
+        consecutiveBackspaceCount = 0
         
         // Reset keys: Esc (53), Tab (48), Arrows (123-126)
         if keyCode == 53 || keyCode == 48 || (keyCode >= 123 && keyCode <= 126) {
@@ -425,6 +443,22 @@ class InputListener {
         }
         LanguageManager.shared.learnDecision(target: targetLang, enWord: enWord, ruWord: ruWord)
         
+        // Record switch for undo
+        // Length includes the word + potentially the trigger key (Space/Enter) which is restored later
+        // If triggerKeyCode is present, it means user typed Word + Space/Enter.
+        // To undo, they must backspace the Space/Enter (1) + Word (buffer.count).
+        // However, usually they delete the Space, then the Word.
+        let undoLength = buffer.count + (triggerKeyCode != nil ? 1 : 0)
+        
+        lastSwitch = LastSwitchInfo(
+            timestamp: Date().timeIntervalSince1970,
+            targetLang: targetLang,
+            enWord: enWord,
+            ruWord: ruWord,
+            length: undoLength
+        )
+        consecutiveBackspaceCount = 0
+        
         logDebug("Executing switchAndReplace -> \(targetLang)")
         let spLog = OSLog(subsystem: "com.babylonfish.app", category: "autoswitch")
         let spID = OSSignpostID(log: spLog)
@@ -470,6 +504,24 @@ class InputListener {
         }
         
         os_signpost(.end, log: spLog, name: "switchAndReplace", signpostID: spID)
+    }
+    
+    private func checkUndoLearning() {
+        guard let ls = lastSwitch else { return }
+        
+        // Timeout (e.g. 15 seconds)
+        if Date().timeIntervalSince1970 - ls.timestamp > 15 {
+            lastSwitch = nil
+            return
+        }
+        
+        if consecutiveBackspaceCount >= ls.length {
+            logDebug("Undo Learning Triggered! Unlearning \(ls.enWord)/\(ls.ruWord)")
+            LanguageManager.shared.unlearnDecision(target: ls.targetLang, enWord: ls.enWord, ruWord: ls.ruWord)
+            
+            // Clear lastSwitch so we don't trigger again for the same word
+            lastSwitch = nil
+        }
     }
     
     private func sendKey(_ keyCode: Int, flags: CGEventFlags = []) {

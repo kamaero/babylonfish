@@ -46,7 +46,17 @@ cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/"
 # Copy Info.plist
 cp "Sources/BabylonFish/Resources/Info.plist" "$CONTENTS_DIR/"
 
-# (Optional) You could generate an icns here or copy one if you had it.
+# Copy Icons if they exist
+if [ -f "Sources/BabylonFish/Resources/AppIcon.icns" ]; then
+    echo "Copying AppIcon.icns..."
+    cp "Sources/BabylonFish/Resources/AppIcon.icns" "$RESOURCES_DIR/"
+fi
+
+if [ -f "Sources/BabylonFish/Resources/tray_icon.png" ]; then
+    echo "Copying tray icons..."
+    cp "Sources/BabylonFish/Resources/tray_icon.png" "$RESOURCES_DIR/"
+    cp "Sources/BabylonFish/Resources/tray_icon@2x.png" "$RESOURCES_DIR/" 2>/dev/null || true
+fi
 
 echo "Staging into $DIST_DIR..."
 ditto "$APP_BUNDLE" "$DIST_DIR/$APP_BUNDLE"

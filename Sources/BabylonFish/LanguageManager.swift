@@ -10,8 +10,10 @@ class LanguageManager {
     
     private let enUserKey = "bf_user_words_en"
     private let ruUserKey = "bf_user_words_ru"
+    private let ignoredWordsKey = "bf_ignored_words"
     private var userWordsEN: [String: Int] = [:]
     private var userWordsRU: [String: Int] = [:]
+    private var ignoredWords: Set<String> = []
     
     private init() {
         if let en = UserDefaults.standard.dictionary(forKey: enUserKey) as? [String: Int] {
@@ -19,6 +21,9 @@ class LanguageManager {
         }
         if let ru = UserDefaults.standard.dictionary(forKey: ruUserKey) as? [String: Int] {
             userWordsRU = ru
+        }
+        if let ignored = UserDefaults.standard.array(forKey: ignoredWordsKey) as? [String] {
+            ignoredWords = Set(ignored)
         }
     }
     
@@ -195,6 +200,12 @@ class LanguageManager {
         let ruLower = ruString.lowercased()
         let count = keyCodes.count
         
+        // 0. Check Exceptions
+        if ignoredWords.contains(enLower) || ignoredWords.contains(ruLower) {
+            logDebug("Ignored word detected: \(enLower)/\(ruLower)")
+            return nil
+        }
+        
         if count == 1 {
             if ruSingletonLetters.contains(ruLower) || commonRuShortWords.contains(ruLower) {
                 return .russian
@@ -227,7 +238,20 @@ class LanguageManager {
             }
         }
         
-        // 2. Check user-learned words
+        // 2. Check common dictionaries (Prioritize explicit common words over learned behavior)
+        // This fixes cases where "tot" is learned but "еще" is common
+        
+        if commonRuShortWords.contains(ruLower) {
+            logDebug("Common Russian Short Word Match: \(ruLower)")
+            return .russian
+        }
+        
+        if commonEnglishWords.contains(enLower) {
+            logDebug("Common English Word Match: \(enLower)")
+            return .english
+        }
+        
+        // 3. Check user-learned words
         if let enCount = userWordsEN[enLower], enCount >= 2 {
             logDebug("User Learned Word (EN): \(enLower) count=\(enCount)")
             return .english
@@ -237,13 +261,7 @@ class LanguageManager {
             return .russian
         }
         
-        // 3. Check common English words (fallback for short words like 'forget')
-        if commonEnglishWords.contains(enLower) {
-            logDebug("Common English Word Match: \(enLower)")
-            return .english
-        }
-        
-        // Simple heuristic: Count valid bigrams
+        // 4. Simple heuristic: Count valid bigrams
         let enScore = countBigrams(enString, dictionary: commonEnBigrams)
         let ruScore = countBigrams(ruString, dictionary: commonRuBigrams)
         
@@ -289,6 +307,56 @@ class LanguageManager {
             userWordsRU[ruLower] = val
             UserDefaults.standard.set(userWordsRU, forKey: ruUserKey)
             logDebug("Learned RU word: \(ruLower) -> \(val)")
+        }
+    }
+    
+    func unlearnDecision(target: Language, enWord: String, ruWord: String) {
+        let enLower = enWord.lowercased()
+        let ruLower = ruWord.lowercased()
+        
+        var remainingCount = 0
+        var foundInUser = false
+        
+        switch target {
+        case .english:
+            if let count = userWordsEN[enLower], count > 0 {
+                foundInUser = true
+                remainingCount = count - 1
+                if remainingCount == 0 {
+                    userWordsEN.removeValue(forKey: enLower)
+                } else {
+                    userWordsEN[enLower] = remainingCount
+                }
+                UserDefaults.standard.set(userWordsEN, forKey: enUserKey)
+                logDebug("Unlearned EN word: \(enLower) -> \(remainingCount)")
+            }
+            
+            // If it's effectively removed from user learning (or never was there), check if we need to ignore it
+            if (!foundInUser || remainingCount == 0) && commonEnglishWords.contains(enLower) {
+                 logDebug("Adding common EN word to exceptions: \(enLower)")
+                 ignoredWords.insert(enLower)
+                 UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
+            }
+            
+        case .russian:
+            if let count = userWordsRU[ruLower], count > 0 {
+                foundInUser = true
+                remainingCount = count - 1
+                if remainingCount == 0 {
+                    userWordsRU.removeValue(forKey: ruLower)
+                } else {
+                    userWordsRU[ruLower] = remainingCount
+                }
+                UserDefaults.standard.set(userWordsRU, forKey: ruUserKey)
+                logDebug("Unlearned RU word: \(ruLower) -> \(remainingCount)")
+            }
+            
+            // If it's effectively removed from user learning (or never was there), check if we need to ignore it
+            if (!foundInUser || remainingCount == 0) && commonRuShortWords.contains(ruLower) {
+                 logDebug("Adding common RU word to exceptions: \(ruLower)")
+                 ignoredWords.insert(ruLower)
+                 UserDefaults.standard.set(Array(ignoredWords), forKey: ignoredWordsKey)
+            }
         }
     }
     

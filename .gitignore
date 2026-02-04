@@ -7,3 +7,5 @@ DerivedData/
 dist/
 BabylonFish.app/
 .DS_Store
+*.trace
+log.txt
