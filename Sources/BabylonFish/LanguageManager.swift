@@ -199,6 +199,29 @@ class LanguageManager {
         let range = spellChecker.checkSpelling(of: word, startingAt: 0, language: language, wrap: false, inSpellDocumentWithTag: 0, wordCount: nil)
         return range.location == NSNotFound
     }
+    
+    // Suggest correction for a word in a specific language
+    func suggestCorrection(for word: String, language: Language) -> String? {
+        let langCode = (language == .russian) ? "ru_RU" : "en_US"
+        
+        // 1. Check if word is already valid
+        if isSystemWord(word, language: langCode) {
+            return nil
+        }
+        
+        // 2. Get candidates
+        // correction(forWordRange:in:language:inSpellDocumentWithTag:) returns the single best guess
+        let range = NSRange(location: 0, length: word.utf16.count)
+        let correction = spellChecker.correction(forWordRange: range, in: word, language: langCode, inSpellDocumentWithTag: 0)
+        
+        // Only return if it's different (it should be, since we checked isSystemWord, but safety first)
+        if let correction = correction, correction != word {
+            logDebug("Correction found for '\(word)' (\(langCode)): \(correction)")
+            return correction
+        }
+        
+        return nil
+    }
 
     func detectLanguage(for keyCodes: [Int]) -> Language? {
         guard keyCodes.count >= 1 else { return nil }

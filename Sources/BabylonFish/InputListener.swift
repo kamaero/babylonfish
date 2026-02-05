@@ -426,7 +426,68 @@ class InputListener {
             switchAndReplace(targetLang: detectedLang, buffer: snapshot, triggerKeyCode: triggerKeyCode)
             return true
         }
+        
+        // 5. Auto-correction Logic (If no layout switch needed)
+        // Check if we can correct a typo in the CURRENT language
+        if let currentID = getCurrentInputSourceId() {
+            let isCurrentRussian = currentID.contains("Russian")
+            let isCurrentEnglish = currentID.contains("US") || currentID.contains("English") || currentID.contains("ABC")
+            
+            var currentLang: Language?
+            if isCurrentRussian { currentLang = .russian }
+            else if isCurrentEnglish { currentLang = .english }
+            
+            if let lang = currentLang {
+                // Construct current word
+                var currentWord = ""
+                for info in snapshot {
+                    if let chars = KeyMapper.shared.getChars(for: info.code) {
+                        currentWord += (lang == .russian) ? chars.ru : chars.en
+                    }
+                }
+                
+                // Ask LanguageManager for correction
+                if let correction = LanguageManager.shared.suggestCorrection(for: currentWord, language: lang) {
+                    logDebug("Auto-correction triggered: \(currentWord) -> \(correction)")
+                    
+                    // We can reuse switchAndReplace logic but we need to pass the correction explicitly
+                    // Actually switchAndReplace re-types keys.
+                    // We need a replaceWord function.
+                    replaceWord(originalLength: snapshot.count, newText: correction, triggerKeyCode: triggerKeyCode)
+                    return true
+                }
+            }
+        }
+        
         return false
+    }
+    
+    private func replaceWord(originalLength: Int, newText: String, triggerKeyCode: Int?) {
+        // Prevent infinite loops
+        isProcessing = true
+        defer { isProcessing = false }
+        
+        // Clear internal buffer
+        keyBuffer.removeAll()
+        
+        logDebug("Executing replaceWord -> \(newText)")
+        
+        // Delete characters
+        let deleteCount = originalLength
+        for _ in 0..<deleteCount {
+            sendKey(51) // Backspace
+            usleep(500)
+        }
+        
+        // Paste correction (typing char by char might be safer for non-English/Russian chars, but paste is faster)
+        // Let's use pasteString since we have it
+        pasteString(newText)
+        
+        // Restore trigger key if it existed
+        if let trigger = triggerKeyCode {
+            logDebug("Restoring trigger key: \(trigger)")
+            sendKey(trigger)
+        }
     }
     
     private func switchAndReplace(targetLang: Language, buffer: [KeyInfo], triggerKeyCode: Int?) {
