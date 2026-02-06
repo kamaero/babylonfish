@@ -10,20 +10,33 @@ let package = Package(
     ],
     products: [
         .executable(
-            name: "BabylonFish",
-            targets: ["BabylonFish"]),
+            name: "BabylonFishLegacy",
+            targets: ["BabylonFishLegacy"]),
+        .executable(
+            name: "BabylonFish2",
+            targets: ["BabylonFish2"]),
     ],
     dependencies: [
         // Dependencies go here
     ],
     targets: [
         .executableTarget(
-            name: "BabylonFish",
+            name: "BabylonFishLegacy",
             dependencies: [],
+            path: "Sources/BabylonFish",
             exclude: ["Resources"],
             resources: [
                 // .process("Resources")
             ],
+            linkerSettings: [
+                .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
+                .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
+            ]
+        ),
+        .executableTarget(
+            name: "BabylonFish2",
+            dependencies: [],
+            path: "Sources/BabylonFish2",
             linkerSettings: [
                 .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
                 .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
