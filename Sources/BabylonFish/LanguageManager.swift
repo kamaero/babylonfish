@@ -1,11 +1,6 @@
 import Foundation
 import Cocoa // For NSSpellChecker
 
-enum Language {
-    case english
-    case russian
-}
-
 class LanguageManager {
     static let shared = LanguageManager()
     

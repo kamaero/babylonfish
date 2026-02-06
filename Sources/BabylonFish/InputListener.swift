@@ -919,7 +919,7 @@ class InputListener {
             let isUpper = (s != lowerS)
             
             var found = false
-            for (_, (en, ru)) in KeyMapper.shared.map {
+            for (_, (en, ru)) in KeyMapper.shared.allMappings {
                 if en == lowerS {
                     result += isUpper ? ru.uppercased() : ru
                     found = true

@@ -6,7 +6,7 @@ class KeyMapper {
     
     // Mapping from Virtual Keycode to (English, Russian) characters
     // This is a simplified map for standard QWERTY/JCUKEN
-    let map: [Int: (en: String, ru: String)] = [
+    private let map: [Int: (en: String, ru: String)] = [
         0: ("a", "ф"), 1: ("s", "ы"), 2: ("d", "в"), 3: ("f", "а"), 4: ("h", "р"), 5: ("g", "п"),
         6: ("z", "я"), 7: ("x", "ч"), 8: ("c", "с"), 9: ("v", "м"), 11: ("b", "и"),
         12: ("q", "й"), 13: ("w", "ц"), 14: ("e", "у"), 15: ("r", "к"), 16: ("y", "н"), 17: ("t", "е"),
@@ -21,6 +21,10 @@ class KeyMapper {
     
     func getChars(for keyCode: Int) -> (en: String, ru: String)? {
         return map[keyCode]
+    }
+    
+    var allMappings: [Int: (en: String, ru: String)] {
+        return map
     }
 }
 

@@ -6,10 +6,11 @@ import ApplicationServices
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem!
-    var inputListener: InputListener?
+    var babylonFishEngine: BabylonFishEngine?
     var settingsWindow: NSWindow?
     var suggestionWindow: SuggestionWindow?
     var retryTimer: Timer?
+    var configObserver: NSObjectProtocol?
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Register defaults
@@ -160,15 +161,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func startAppLogic() {
-        inputListener = InputListener()
-        inputListener?.suggestionWindow = suggestionWindow
-        let success = inputListener?.start() ?? false
+        // Мигрируем настройки из v1 если нужно
+        AppConfig.migrateFromV1()
+        
+        // Создаем движок BabylonFish 2.0
+        babylonFishEngine = BabylonFishEngine()
+        babylonFishEngine?.setSuggestionWindow(suggestionWindow)
+        
+        // Добавляем наблюдатель за изменением конфигурации
+        configObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("BabylonFishConfigChanged"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            let newConfig = AppConfig.load()
+            self.babylonFishEngine?.updateConfiguration(newConfig)
+        }
+        
+        let success = babylonFishEngine?.start() ?? false
         
         if !success {
-            logDebug("InputListener failed to start despite permissions checks. Retrying...")
+            logDebug("BabylonFishEngine failed to start despite permissions checks. Retrying...")
             scheduleRetry()
         } else {
-             logDebug("BabylonFish started successfully!")
+             logDebug("BabylonFish 2.0 started successfully!")
         }
     }
 
@@ -306,22 +323,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct SettingsView: View {
-    @AppStorage("autoSwitchEnabled") private var autoSwitchEnabled = true
-    @AppStorage("startAtLogin") private var startAtLogin = false
+    @State private var config = AppConfig.load()
+    @State private var startAtLogin = false
     @State private var newException = ""
-    @AppStorage("exceptions") private var exceptionsData: Data = Data()
-    
-    @State private var exceptions: [String] = []
     
     var body: some View {
         VStack(alignment: .leading) {
-            Toggle("Enable Auto-Switching", isOn: $autoSwitchEnabled)
+            Toggle("Enable Auto-Switching", isOn: $config.exceptions.globalEnabled)
                 .toggleStyle(SwitchToggleStyle())
+                .onChange(of: config.exceptions.globalEnabled) {
+                    config.save()
+                    // Notify engine about config change
+                    notifyEngineConfigChanged()
+                }
             
             Toggle("Start at Login", isOn: $startAtLogin)
                 .toggleStyle(SwitchToggleStyle())
-                .onChange(of: startAtLogin) { newValue in
-                    toggleLaunchAtLogin(newValue)
+                .onChange(of: startAtLogin) {
+                    toggleLaunchAtLogin($0)
                 }
                 .padding(.bottom)
             
@@ -333,15 +352,16 @@ struct SettingsView: View {
                     .textFieldStyle(RoundedBorderTextFieldStyle())
                 Button("Add") {
                     if !newException.isEmpty {
-                        exceptions.append(newException)
-                        saveExceptions()
+                        config.exceptions.wordExceptions.insert(newException)
+                        config.save()
                         newException = ""
+                        notifyEngineConfigChanged()
                     }
                 }
             }
             
             List {
-                ForEach(exceptions, id: \.self) { item in
+                ForEach(Array(config.exceptions.wordExceptions.sorted()), id: \.self) { item in
                     Text(item)
                 }
                 .onDelete(perform: deleteException)
@@ -356,27 +376,25 @@ struct SettingsView: View {
         .padding()
         .frame(width: 500, height: 400)
         .onAppear {
-            loadExceptions()
             // Check actual status
             startAtLogin = isLaunchAtLoginEnabled()
         }
     }
     
     func deleteException(at offsets: IndexSet) {
-        exceptions.remove(atOffsets: offsets)
-        saveExceptions()
+        let sortedItems = Array(config.exceptions.wordExceptions.sorted())
+        for offset in offsets {
+            if offset < sortedItems.count {
+                config.exceptions.wordExceptions.remove(sortedItems[offset])
+            }
+        }
+        config.save()
+        notifyEngineConfigChanged()
     }
     
-    func saveExceptions() {
-        if let data = try? JSONEncoder().encode(exceptions) {
-            exceptionsData = data
-        }
-    }
-    
-    func loadExceptions() {
-        if let loaded = try? JSONDecoder().decode([String].self, from: exceptionsData) {
-            exceptions = loaded
-        }
+    private func notifyEngineConfigChanged() {
+        // Notify AppDelegate to update engine configuration
+        NotificationCenter.default.post(name: NSNotification.Name("BabylonFishConfigChanged"), object: nil)
     }
     
     // MARK: - Launch at Login Logic
