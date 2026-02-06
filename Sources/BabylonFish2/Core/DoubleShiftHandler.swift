@@ -179,7 +179,6 @@ class DoubleShiftHandler {
         
         if let detector = languageDetector {
             let targetLangCode = (targetLangID == "Russian") ? "ru_RU" : "en_US"
-            let sourceLangCode = (sourceLangID == "Russian") ? "ru_RU" : "en_US"
             
             let isConvertedValid = detector.isSystemWord(converted, language: targetLangCode)
             

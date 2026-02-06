@@ -12,6 +12,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     var suggestionWindow: SuggestionWindow?
     var retryTimer: Timer?
     var configObserver: NSObjectProtocol?
+    var menuRefreshWorkItem: DispatchWorkItem?
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Register defaults
@@ -46,57 +47,14 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
         
         // Update LaunchAgent path if enabled (since app path might have changed due to versioning)
         // Also ensure LaunchAgent exists if it was previously enabled via UserDefaults (resilience)
-        updateLaunchAgentPathIfNeeded()
+        LaunchAgentManager.updatePathIfNeeded()
     }
     
-    private func updateLaunchAgentPathIfNeeded() {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let launchAgentURL = library.appendingPathComponent("LaunchAgents").appendingPathComponent("com.babylonfish.app.plist")
-        
-        // Check if we SHOULD have it enabled based on UserDefaults (fallback)
-        // We use a custom key "startAtLoginPreferred" to track intent
-        let preferred = UserDefaults.standard.bool(forKey: "startAtLoginPreferred")
-        
-        let fileExists = FileManager.default.fileExists(atPath: launchAgentURL.path)
-        
-        if fileExists || preferred {
-             // It's enabled (or should be), so let's update/create the plist
-             let execPath = Bundle.main.bundlePath + "/Contents/MacOS/BabylonFish"
-             let plistContent = """
-             <?xml version="1.0" encoding="UTF-8"?>
-             <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-             <plist version="1.0">
-             <dict>
-                 <key>Label</key>
-                 <string>com.babylonfish.app</string>
-                 <key>ProgramArguments</key>
-                 <array>
-                     <string>\(execPath)</string>
-                 </array>
-                 <key>RunAtLoad</key>
-                 <true/>
-                 <key>KeepAlive</key>
-                 <false/>
-             </dict>
-             </plist>
-             """
-             
-             do {
-                 let launchAgentsDir = launchAgentURL.deletingLastPathComponent()
-                 if !FileManager.default.fileExists(atPath: launchAgentsDir.path) {
-                     try FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-                 }
-                 
-                 try plistContent.write(to: launchAgentURL, atomically: true, encoding: .utf8)
-                 logDebug("LaunchAgent updated/created at: \(execPath)")
-                 
-                 // If it was missing but preferred, we just restored it.
-                 // We should probably tell launchd to load it?
-                 // But simply writing the file is usually enough for the next login.
-             } catch {
-                 logDebug("Failed to update LaunchAgent: \(error)")
-             }
-        }
+    private func scheduleMenuRefresh() {
+        menuRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.constructMenu() }
+        menuRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
     
     func constructMenu() {
@@ -244,7 +202,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
 
         // Permissions OK. Start.
         startAppLogic()
-        constructMenu()
+        scheduleMenuRefresh()
     }
     
     private func startAppLogic() {
@@ -319,14 +277,14 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
                         logDebug("Retry successful!")
                         self.retryTimer?.invalidate()
                         self.retryTimer = nil
-                        self.constructMenu()
+                        self.scheduleMenuRefresh()
                     }
                 } else {
                     // Если движок еще не создан, пробуем startAppLogic
                     self.retryTimer?.invalidate()
                     self.retryTimer = nil
                     self.startAppLogic()
-                    self.constructMenu()
+                    self.scheduleMenuRefresh()
                 }
             }
         }
@@ -417,150 +375,4 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     }
 }
 
-struct SettingsView: View {
-    @State private var config = AppConfig.load()
-    @State private var startAtLogin = false
-    @State private var newException = ""
-    
-    var body: some View {
-        VStack(alignment: .leading) {
-            Toggle("Включить авто-переключение", isOn: $config.exceptions.globalEnabled)
-                .toggleStyle(SwitchToggleStyle())
-                .onChange(of: config.exceptions.globalEnabled) {
-                    config.save()
-                    notifyEngineConfigChanged()
-                }
-            
-            Toggle("Авто-исправление опечаток", isOn: $config.exceptions.autoCorrectTypos)
-                .toggleStyle(SwitchToggleStyle())
-                .onChange(of: config.exceptions.autoCorrectTypos) {
-                    config.save()
-                    notifyEngineConfigChanged()
-                }
-            
-            Toggle("Запускать при входе", isOn: $startAtLogin)
-                .toggleStyle(SwitchToggleStyle())
-                .onChange(of: startAtLogin) {
-                    toggleLaunchAtLogin($0)
-                    // Persist preference
-                    UserDefaults.standard.set($0, forKey: "startAtLoginPreferred")
-                }
-                .padding(.bottom)
-            
-            Text("Исключения (Приложения или Слова):")
-                .font(.headline)
-            
-            HStack {
-                TextField("Добавить исключение...", text: $newException)
-                    .textFieldStyle(RoundedBorderTextFieldStyle())
-                Button("Добавить") {
-                    if !newException.isEmpty {
-                        config.exceptions.wordExceptions.insert(newException)
-                        config.save()
-                        newException = ""
-                        notifyEngineConfigChanged()
-                    }
-                }
-            }
-            
-            List {
-                ForEach(Array(config.exceptions.wordExceptions.sorted()), id: \.self) { item in
-                    Text(item)
-                }
-                .onDelete(perform: deleteException)
-            }
-            .border(Color.gray.opacity(0.2))
-            
-            Text("Примечание: Нажмите Стрелку Вправо (->) для временной отмены переключения.")
-                .font(.caption)
-                .foregroundColor(.gray)
-                .padding(.top)
-        }
-        .padding()
-        .frame(width: 500, height: 400)
-        .onAppear {
-            // Check actual status
-            startAtLogin = isLaunchAtLoginEnabled()
-        }
-    }
-    
-    func deleteException(at offsets: IndexSet) {
-        let sortedItems = Array(config.exceptions.wordExceptions.sorted())
-        for offset in offsets {
-            if offset < sortedItems.count {
-                config.exceptions.wordExceptions.remove(sortedItems[offset])
-            }
-        }
-        config.save()
-        notifyEngineConfigChanged()
-    }
-    
-    private func notifyEngineConfigChanged() {
-        // Notify AppDelegate to update engine configuration
-        NotificationCenter.default.post(name: NSNotification.Name("BabylonFishConfigChanged"), object: nil)
-    }
-    
-    // MARK: - Launch at Login Logic
-    // Using LaunchAgent plist for robustness with non-sandboxed app
-    
-    private var launchAgentURL: URL {
-        let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
-        let launchAgents = library.appendingPathComponent("LaunchAgents")
-        return launchAgents.appendingPathComponent("com.babylonfish.app.plist")
-    }
-    
-    private func isLaunchAtLoginEnabled() -> Bool {
-        return FileManager.default.fileExists(atPath: launchAgentURL.path)
-    }
-    
-    private func toggleLaunchAtLogin(_ enabled: Bool) {
-        let fileManager = FileManager.default
-        let url = launchAgentURL
-        
-        if enabled {
-            // Create LaunchAgent plist
-            let execPath = Bundle.main.bundlePath + "/Contents/MacOS/BabylonFish"
-            let plistContent = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-            <plist version="1.0">
-            <dict>
-                <key>Label</key>
-                <string>com.babylonfish.app</string>
-                <key>ProgramArguments</key>
-                <array>
-                    <string>\(execPath)</string>
-                </array>
-                <key>RunAtLoad</key>
-                <true/>
-                <key>KeepAlive</key>
-                <false/>
-            </dict>
-            </plist>
-            """
-            
-            do {
-                // Ensure directory exists
-                let launchAgentsDir = url.deletingLastPathComponent()
-                if !fileManager.fileExists(atPath: launchAgentsDir.path) {
-                    try fileManager.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-                }
-                
-                try plistContent.write(to: url, atomically: true, encoding: .utf8)
-                logDebug("LaunchAgent created at \(url.path)")
-            } catch {
-                logDebug("Failed to create LaunchAgent: \(error)")
-            }
-        } else {
-            // Remove LaunchAgent plist
-            do {
-                if fileManager.fileExists(atPath: url.path) {
-                    try fileManager.removeItem(at: url)
-                    logDebug("LaunchAgent removed")
-                }
-            } catch {
-                logDebug("Failed to remove LaunchAgent: \(error)")
-            }
-        }
-    }
-}
+// SettingsView moved to separate file
