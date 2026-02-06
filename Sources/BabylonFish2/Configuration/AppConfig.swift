@@ -30,8 +30,10 @@ struct AppConfig: Codable {
     static func load() -> AppConfig {
         guard let data = UserDefaults.standard.data(forKey: "babylonfish_config_v2"),
               let config = try? JSONDecoder().decode(AppConfig.self, from: data) else {
+            logDebug("AppConfig: no saved config found, returning default")
             return .default()
         }
+        logDebug("AppConfig: loaded config version \(config.version), globalEnabled=\(config.exceptions.globalEnabled)")
         return config
     }
     
@@ -40,6 +42,7 @@ struct AppConfig: Codable {
         // Проверяем, есть ли старые настройки
         let hasOldSettings = UserDefaults.standard.object(forKey: "autoSwitchEnabled") != nil
         
+        logDebug("Migration check: hasOldSettings=\(hasOldSettings)")
         guard hasOldSettings else { return }
         
         logDebug("Migrating settings from v1 to v2...")

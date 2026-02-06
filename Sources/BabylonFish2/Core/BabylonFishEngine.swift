@@ -106,6 +106,7 @@ class BabylonFishEngine {
     private func applyExceptionRules() {
         // Global auto-switch enabled
         eventProcessor.autoSwitchEnabled = config.exceptions.globalEnabled
+        logDebug("applyExceptionRules: globalEnabled = \(config.exceptions.globalEnabled)")
         
         // Word exceptions в LearningManager
         learningManager.setIgnoredWords(config.exceptions.wordExceptions)

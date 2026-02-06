@@ -40,6 +40,7 @@ class LanguageDetector {
             logDebug("Common English Word Match: \(enLower)")
             return .english
         }
+        logDebug("No common word match for EN='\(enLower)' RU='\(ruLower)'")
         
         // 2. Проверяем исключения (игнорируемые слова)
         if learningManager.isWordIgnored(enLower) || learningManager.isWordIgnored(ruLower) {
@@ -50,6 +51,7 @@ class LanguageDetector {
         // 3. Проверяем системный словарь
         let isRuValid = isSystemWord(ruLower, language: "ru_RU")
         let isEnValid = isSystemWord(enLower, language: "en_US")
+        logDebug("System dictionary check: EN='\(enLower)' valid=\(isEnValid), RU='\(ruLower)' valid=\(isRuValid)")
         
         if isRuValid && !isEnValid {
             logDebug("System Dictionary: RU Valid ('\(ruLower)'), EN Invalid -> RU")
@@ -87,6 +89,7 @@ class LanguageDetector {
                 return .russian
             }
         }
+        logDebug("No impossible RU-in-EN patterns found")
         
         for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 4 {
             if ruString.contains(pattern) {
@@ -94,6 +97,7 @@ class LanguageDetector {
                 return .english
             }
         }
+        logDebug("No impossible EN-in-RU patterns found")
         
         // 6. Проверяем слова, выученные пользователем
         if learningManager.getEnglishWordCount(enLower) >= 2 {

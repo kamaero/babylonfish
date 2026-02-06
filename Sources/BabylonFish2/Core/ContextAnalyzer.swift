@@ -119,24 +119,31 @@ class ContextAnalyzer {
     func shouldDisableSwitching() -> Bool {
         // 1. Проверяем secure field (всегда отключаем)
         if isSecureField() {
+            logDebug("ContextAnalyzer: secure field detected, disabling switching")
             return true
         }
         
         // 2. Проверяем правила контекста из конфигурации
         if let action = evaluateContextRules() {
+            logDebug("ContextAnalyzer: context rule matched, action: \(action)")
             return action == .disableSwitching
         }
         
         // 3. Проверяем исключения для приложений
         if let action = evaluateAppExceptions() {
+            logDebug("ContextAnalyzer: app exception matched, action: \(action)")
             return action == .disableSwitching
         }
         
         // 4. Запасная эвристика для обратной совместимости
-        if isTerminalApp() || isGame() {
+        let isTerminal = isTerminalApp()
+        let isGameApp = isGame()
+        if isTerminal || isGameApp {
+            logDebug("ContextAnalyzer: fallback heuristic - terminal: \(isTerminal), game: \(isGameApp)")
             return true
         }
         
+        logDebug("ContextAnalyzer: switching enabled for current context")
         return false
     }
     

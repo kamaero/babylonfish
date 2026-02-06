@@ -16,7 +16,8 @@ struct LanguageConstants {
         "ea", "hi", "wa", "ro", "co", "ne", "de", "ri", "no", "us", "li", "ra", "ce", "ta", "ma"
     ]
     
-    static let commonEnglishWords: Set<String> = [
+     static let commonEnglishWords: Set<String> = [
+        "i","a",
         "hello","world","test","please","thanks","thank","google","facebook","twitter","keyboard",
         "forget","and","the","this","that","with","are","you","what","how","who","which","from","into",
         "switch","layout","babylon","fish","babylonfish","work","home","email","password","login",

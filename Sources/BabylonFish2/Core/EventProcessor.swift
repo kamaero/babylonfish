@@ -108,6 +108,7 @@ class EventProcessor {
         
         // Границы слов: Space (49) или Enter (36)
         if keyCode == 49 || keyCode == 36 {
+            logDebug("Word boundary key detected: \(keyCode == 49 ? "Space" : "Enter")")
             if keyCode == 36, let suggestion = currentSuggestion {
                 applySuggestion(suggestion)
                 return nil
@@ -116,11 +117,15 @@ class EventProcessor {
 
             // Word boundary
             let now = Date().timeIntervalSince1970
-            if now - lastBoundaryAt < boundaryDebounce { return Unmanaged.passRetained(event) }
+            if now - lastBoundaryAt < boundaryDebounce { 
+                logDebug("Word boundary debounced (too fast)")
+                return Unmanaged.passRetained(event) 
+            }
             lastBoundaryAt = now
             
             // Обрабатываем буфер перед очисткой
             var consumed = false
+            logDebug("Word boundary (Space/Enter). Buffer empty: \(bufferManager.isEmpty), count: \(bufferManager.count)")
             if !bufferManager.isEmpty {
                 logDebug("Word boundary (Space/Enter). Processing buffer...")
                 consumed = processBuffer(triggerKeyCode: keyCode)
@@ -129,8 +134,10 @@ class EventProcessor {
             bufferManager.clear()
             
             if consumed {
+                logDebug("Word boundary: buffer consumed, suppressing original key")
                 return nil
             } else {
+                logDebug("Word boundary: buffer not consumed, passing through")
                 return Unmanaged.passRetained(event)
             }
         }
@@ -150,8 +157,10 @@ class EventProcessor {
     
     /// Обрабатывает буфер для определения языка и переключения
     private func processBuffer(triggerKeyCode: Int? = nil) -> Bool {
+        logDebug("processBuffer called, buffer count: \(bufferManager.count), autoSwitchEnabled: \(autoSwitchEnabled)")
         // Проверяем контекст
-        if contextAnalyzer.shouldDisableSwitching() {
+        let contextDisabled = contextAnalyzer.shouldDisableSwitching()
+        if contextDisabled {
             logDebug("processBuffer: context requires disabling switching")
             return false
         }
@@ -166,7 +175,7 @@ class EventProcessor {
         
         let filteredCodes = bufferManager.filteredLetterCodes()
         
-        logDebug("Buffer count: \(bufferManager.count), Filtered count: \(filteredCodes.count)")
+        logDebug("Buffer count: \(bufferManager.count), Filtered count: \(filteredCodes.count), snapshot: \(bufferManager.snapshot)")
         
         guard !filteredCodes.isEmpty else {
             logDebug("Not enough filtered characters for detection (0)")
