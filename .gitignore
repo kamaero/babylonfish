@@ -1,0 +1,11 @@
+.build/
+.swiftpm/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+dist/
+BabylonFish.app/
+.DS_Store
+*.trace
+log.txt
