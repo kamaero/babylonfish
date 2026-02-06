@@ -3,27 +3,27 @@ import SwiftUI
 struct HelpView: View {
     var body: some View {
         VStack(spacing: 20) {
-            Text("🐠 BabylonFish Guide")
+            Text("🐠 BabylonFish Инструкция")
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .padding(.top)
             
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    FeatureRow(icon: "🔀", title: "Auto-Switch", desc: "Type 'ghbdtn'? I'll turn it into 'привет'. Magic!")
+                    FeatureRow(icon: "🔀", title: "Авто-переключение", desc: "Печатаете 'ghbdtn'? Я превращу это в 'привет'. Магия!")
                     
-                    FeatureRow(icon: "✨", title: "Double Shift", desc: "Select any gibberish text and tap Shift twice. I'll try to make sense of it.")
+                    FeatureRow(icon: "✨", title: "Двойной Shift", desc: "Выделите любую абракадабру и нажмите Shift дважды. Я постараюсь это исправить.")
                     
-                    FeatureRow(icon: "💊", title: "Typo Fixer", desc: "I quietly fix 'teh' -> 'the' so you look professional.")
+                    FeatureRow(icon: "💊", title: "Исправление опечаток", desc: "Я тихо исправляю 'поже' -> 'позже', чтобы вы выглядели профессионально.")
                     
-                    FeatureRow(icon: "🔙", title: "Undo My Oopsie", desc: "If I fixed something I shouldn't have, hit Left Arrow (<-) immediately to revert.")
+                    FeatureRow(icon: "🔙", title: "Отмена исправления", desc: "Если я исправил зря, нажмите Стрелку Влево (<-) сразу же, чтобы вернуть как было.")
                     
-                    FeatureRow(icon: "🤫", title: "Shhh Mode", desc: "Typing a password or weird code? Hit Right Arrow (->) to tell me 'Not now, fish!'")
+                    FeatureRow(icon: "🤫", title: "Тихий режим", desc: "Вводите пароль или код? Нажмите Стрелку Вправо (->), чтобы сказать мне 'Не сейчас, рыбка!'")
                 }
                 .padding()
             }
             
-            Text("Made for fingers that move faster than brains. 🧠💨")
+            Text("Сделано для пальцев, которые быстрее мыслей. 🧠💨")
                 .font(.caption)
                 .foregroundColor(.gray)
                 .padding(.bottom)

@@ -102,22 +102,36 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     func constructMenu() {
         let menu = NSMenu()
         
-        menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "How to use? 🐠", action: #selector(openHelp), keyEquivalent: "?"))
+        menu.addItem(NSMenuItem(title: "Настройки...", action: #selector(openSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Как пользоваться? 🐠", action: #selector(openHelp), keyEquivalent: "?"))
         
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? Version.current
         let build = info["CFBundleVersion"] as? String ?? "unknown"
-        let versionItem = NSMenuItem(title: "Version \(version) (\(build))", action: nil, keyEquivalent: "")
+        let versionItem = NSMenuItem(title: "Версия \(version) (\(build))", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         menu.addItem(versionItem)
         
+        // Conditional Menu Items
+        let axGranted = hasAccessibility(prompt: false)
+        let imGranted = hasInputMonitoring()
+        
+        if !axGranted || !imGranted {
+            menu.addItem(NSMenuItem.separator())
+            
+            if !axGranted {
+                menu.addItem(NSMenuItem(title: "Открыть Доступность...", action: #selector(openAccessibilitySettings), keyEquivalent: ""))
+            }
+            
+            if !imGranted {
+                menu.addItem(NSMenuItem(title: "Открыть Мониторинг ввода...", action: #selector(openInputMonitoringSettings), keyEquivalent: ""))
+            }
+            
+            menu.addItem(NSMenuItem(title: "Повторить попытку запуска", action: #selector(retryStartListener), keyEquivalent: ""))
+        }
+        
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Open Accessibility…", action: #selector(openAccessibilitySettings), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Open Input Monitoring…", action: #selector(openInputMonitoringSettings), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Retry Start Listener", action: #selector(retryStartListener), keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Quit BabylonFish", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: "Выход", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         
         statusItem.menu = menu
     }
@@ -135,7 +149,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
             settingsWindow?.center()
             settingsWindow?.setFrameAutosaveName("Settings")
             settingsWindow?.contentView = NSHostingView(rootView: settingsView)
-            settingsWindow?.title = "BabylonFish Settings"
+            settingsWindow?.title = "Настройки BabylonFish"
         }
         
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -151,7 +165,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
                 backing: .buffered, defer: false)
             helpWindow?.center()
             helpWindow?.contentView = NSHostingView(rootView: helpView)
-            helpWindow?.title = "How to use BabylonFish"
+            helpWindow?.title = "Как пользоваться BabylonFish"
         }
         
         helpWindow?.makeKeyAndOrderFront(nil)
@@ -181,11 +195,11 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     func showInputMonitoringAlert() {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Input Monitoring Required"
-            alert.informativeText = "BabylonFish can see modifier keys (Shift), but macOS is blocking normal key presses.\n\nGo to System Settings -> Privacy & Security -> Input Monitoring and enable BabylonFish.\n\nIf BabylonFish is not in the list, add it with the '+' button."
+            alert.messageText = "Требуется мониторинг ввода"
+            alert.informativeText = "BabylonFish видит клавиши-модификаторы (Shift), но macOS блокирует обычные нажатия клавиш.\n\nПерейдите в Системные настройки -> Конфиденциальность и безопасность -> Мониторинг ввода и включите BabylonFish.\n\nЕсли BabylonFish нет в списке, добавьте его с помощью кнопки '+'."
             alert.alertStyle = .critical
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Later")
+            alert.addButton(withTitle: "Открыть настройки")
+            alert.addButton(withTitle: "Позже")
 
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
@@ -271,11 +285,11 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     private func showWelcomeWindow() {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Welcome to BabylonFish! 🐠"
-            alert.informativeText = "To catch your typos, I need two permissions:\n\n1. Accessibility (to see what window is active)\n2. Input Monitoring (to catch keys)\n\nPlease click 'Open Settings', then toggle the switches for BabylonFish."
+            alert.messageText = "Добро пожаловать в BabylonFish! 🐠"
+            alert.informativeText = "Чтобы ловить ваши опечатки, мне нужны два разрешения:\n\n1. Универсальный доступ (чтобы видеть активное окно)\n2. Мониторинг ввода (чтобы ловить клавиши)\n\nПожалуйста, нажмите 'Открыть настройки', затем включите переключатели для BabylonFish."
             alert.alertStyle = .informational
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Открыть настройки")
+            alert.addButton(withTitle: "Выход")
             
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
@@ -334,11 +348,11 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     func showPermissionsAlert() {
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "BabylonFish needs Accessibility permissions to function.\n\nSince the app was updated, macOS may have invalidated the previous permission.\n\nPlease go to System Settings -> Privacy & Security -> Accessibility, remove 'BabylonFish' (using the '-' button), and add it again."
+            alert.messageText = "Требуется универсальный доступ"
+            alert.informativeText = "BabylonFish требуются права универсального доступа для работы.\n\nТак как приложение было обновлено, macOS могла аннулировать предыдущее разрешение.\n\nПожалуйста, перейдите в Системные настройки -> Конфиденциальность и безопасность -> Универсальный доступ, удалите 'BabylonFish' (используя кнопку '-') и добавьте его снова."
             alert.alertStyle = .critical
-            alert.addButton(withTitle: "Open Settings")
-            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Открыть настройки")
+            alert.addButton(withTitle: "Выход")
             
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
@@ -405,21 +419,21 @@ struct SettingsView: View {
     
     var body: some View {
         VStack(alignment: .leading) {
-            Toggle("Enable Auto-Switching", isOn: $config.exceptions.globalEnabled)
+            Toggle("Включить авто-переключение", isOn: $config.exceptions.globalEnabled)
                 .toggleStyle(SwitchToggleStyle())
                 .onChange(of: config.exceptions.globalEnabled) {
                     config.save()
                     notifyEngineConfigChanged()
                 }
             
-            Toggle("Auto-Correct Typos", isOn: $config.exceptions.autoCorrectTypos)
+            Toggle("Авто-исправление опечаток", isOn: $config.exceptions.autoCorrectTypos)
                 .toggleStyle(SwitchToggleStyle())
                 .onChange(of: config.exceptions.autoCorrectTypos) {
                     config.save()
                     notifyEngineConfigChanged()
                 }
             
-            Toggle("Start at Login", isOn: $startAtLogin)
+            Toggle("Запускать при входе", isOn: $startAtLogin)
                 .toggleStyle(SwitchToggleStyle())
                 .onChange(of: startAtLogin) {
                     toggleLaunchAtLogin($0)
@@ -428,13 +442,13 @@ struct SettingsView: View {
                 }
                 .padding(.bottom)
             
-            Text("Exceptions (Applications or Words):")
+            Text("Исключения (Приложения или Слова):")
                 .font(.headline)
             
             HStack {
-                TextField("Add exception...", text: $newException)
+                TextField("Добавить исключение...", text: $newException)
                     .textFieldStyle(RoundedBorderTextFieldStyle())
-                Button("Add") {
+                Button("Добавить") {
                     if !newException.isEmpty {
                         config.exceptions.wordExceptions.insert(newException)
                         config.save()
@@ -452,7 +466,7 @@ struct SettingsView: View {
             }
             .border(Color.gray.opacity(0.2))
             
-            Text("Note: Use Right Arrow (->) to temporarily prevent switching.")
+            Text("Примечание: Нажмите Стрелку Вправо (->) для временной отмены переключения.")
                 .font(.caption)
                 .foregroundColor(.gray)
                 .padding(.top)

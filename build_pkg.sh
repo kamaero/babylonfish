@@ -12,8 +12,8 @@ echo "Building App..."
 "$ROOT_DIR/install_app.sh"
 
 # 2. Find the generated app
-# We look for the latest app in dist/
-APP_NAME=$(ls "$DIST_DIR" | grep "BabylonFish_v" | head -n 1)
+# We look for the latest app in dist/ (sorted by modification time)
+APP_NAME=$(ls -t "$DIST_DIR" | grep "BabylonFish_v" | head -n 1)
 APP_PATH="$DIST_DIR/$APP_NAME"
 
 if [ -z "$APP_NAME" ]; then
