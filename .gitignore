@@ -9,3 +9,8 @@ BabylonFish.app/
 .DS_Store
 *.trace
 log.txt
+# App bundles and packages
+*.app/
+*.pkg
+releases/
+expanded_pkg/

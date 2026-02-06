@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pkg-info overwrite-permissions="true" relocatable="false" identifier="com.babylonfish.app" postinstall-action="none" version="0" format-version="2" generator-version="InstallCmds-864 (25C56)" install-location="/Applications" auth="root">
+    <payload numberOfFiles="7" installKBytes="3043"/>
+    <bundle path="./BabylonFish_v1.0.52.app" id="com.babylonfish.app" CFBundleShortVersionString="1.0.52" CFBundleVersion="1770391399"/>
+    <bundle-version>
+        <bundle id="com.babylonfish.app"/>
+    </bundle-version>
+    <upgrade-bundle>
+        <bundle id="com.babylonfish.app"/>
+    </upgrade-bundle>
+    <update-bundle/>
+    <atomic-update-bundle/>
+    <strict-identifier>
+        <bundle id="com.babylonfish.app"/>
+    </strict-identifier>
+    <relocate>
+        <bundle id="com.babylonfish.app"/>
+    </relocate>
+</pkg-info>

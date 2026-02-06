@@ -46,6 +46,7 @@ MACOS_DIR="$CONTENTS_DIR/$MACOS_DIR_NAME"
 RESOURCES_DIR="$CONTENTS_DIR/$RESOURCES_DIR_NAME"
 
 swift build -c release --product BabylonFish2 --disable-sandbox
+arch -x86_64 swift build -c release --product BabylonFish2 --disable-sandbox
 
 echo "Creating $APP_BUNDLE..."
 
@@ -58,12 +59,12 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # Copy executable
-if [ -f "$BUILD_DIR/BabylonFish2" ]; then
-    cp "$BUILD_DIR/BabylonFish2" "$MACOS_DIR/BabylonFish"
-elif [ -f "$BUILD_DIR/$APP_NAME" ]; then
-    cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/"
+ARM_BIN=".build/arm64-apple-macosx/release/BabylonFish2"
+X86_BIN=".build/x86_64-apple-macosx/release/BabylonFish2"
+if [ -f "$ARM_BIN" ] && [ -f "$X86_BIN" ]; then
+    lipo -create -output "$MACOS_DIR/BabylonFish" "$ARM_BIN" "$X86_BIN"
 else
-    echo "Error: Executable not found in $BUILD_DIR"
+    echo "Error: Missing architecture builds: arm64=$([ -f \"$ARM_BIN\" ] && echo ok || echo missing), x86_64=$([ -f \"$X86_BIN\" ] && echo ok || echo missing)"
     exit 1
 fi
 

@@ -244,6 +244,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
 
         // Permissions OK. Start.
         startAppLogic()
+        constructMenu()
     }
     
     private func startAppLogic() {
@@ -318,12 +319,14 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
                         logDebug("Retry successful!")
                         self.retryTimer?.invalidate()
                         self.retryTimer = nil
+                        self.constructMenu()
                     }
                 } else {
                     // Если движок еще не создан, пробуем startAppLogic
                     self.retryTimer?.invalidate()
                     self.retryTimer = nil
                     self.startAppLogic()
+                    self.constructMenu()
                 }
             }
         }
@@ -332,12 +335,14 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     @objc func openAccessibilitySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
+            scheduleRetry()
         }
     }
 
     @objc func openInputMonitoringSettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
+            scheduleRetry()
         }
     }
 

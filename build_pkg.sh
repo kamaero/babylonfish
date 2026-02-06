@@ -32,9 +32,14 @@ OUT_PKG="$RELEASES_DIR/$PKG_NAME"
 echo "Creating pkg '$PKG_NAME'..."
 
 # 3. Create PKG
+# Note: When analyzing pkg with pkgutil, install-location seems correct.
+# However, if the app is relocatable or if a previous version exists elsewhere, Installer might move it.
+# We disable relocation to force /Applications.
+
 pkgbuild --install-location "$INSTALL_LOC" \
          --component "$APP_PATH" \
          --identifier "$IDENTIFIER" \
+         --ownership recommended \
          "$OUT_PKG"
 
 echo "✅ Package created successfully:"
