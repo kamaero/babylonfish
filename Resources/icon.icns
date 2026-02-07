@@ -1,0 +1,4 @@
+# This is a placeholder for an icon file
+# To create a proper .icns file, use:
+# 1. Create 1024x1024 PNG icon
+# 2. Use: iconutil -c icns icon.iconset

@@ -18,6 +18,11 @@ class BabylonFishEngine {
     // UI компоненты
     weak var suggestionWindow: SuggestionWindow?
     
+    /// Текущая конфигурация (только для чтения)
+    var currentConfig: AppConfig {
+        return config
+    }
+    
     /// Инициализирует движок с конфигурацией
     init(config: AppConfig = AppConfig.load()) {
         self.config = config

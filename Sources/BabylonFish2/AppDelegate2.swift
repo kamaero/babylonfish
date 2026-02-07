@@ -5,7 +5,7 @@ import IOKit
 import ApplicationServices
 
 class AppDelegate2: NSObject, NSApplicationDelegate {
-    var statusItem: NSStatusItem!
+    var statusBarController: StatusBarController?
     var babylonFishEngine: BabylonFishEngine?
     var settingsWindow: NSWindow?
     var helpWindow: NSWindow?
@@ -13,6 +13,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     var retryTimer: Timer?
     var configObserver: NSObjectProtocol?
     var menuRefreshWorkItem: DispatchWorkItem?
+    var firstLaunchAlertShown = false
     
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         // Register defaults
@@ -27,16 +28,23 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
         let build = info["CFBundleVersion"] as? String ?? "unknown"
         logDebug("App launch: pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(bundlePath) exe=\(executablePath) version=\(version) build=\(build)")
 
-        // Create the status item
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        // Create status bar controller
+        suggestionWindow = SuggestionWindow()
+        statusBarController = StatusBarController(engine: babylonFishEngine)
         
-        if let button = statusItem.button {
-            button.image = drawIcon(flag: nil)
-            button.action = #selector(togglePopover(_:))
-            button.target = self
+        // Check if this is first launch
+        let isFirstLaunch = UserDefaults.standard.object(forKey: "babylonfish_first_launch") == nil
+        
+        if isFirstLaunch {
+            // Mark as launched
+            UserDefaults.standard.set(true, forKey: "babylonfish_first_launch")
+            
+            // Show welcome alert on first launch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.showFirstLaunchAlert()
+            }
         }
         
-        constructMenu()
         ensurePermissionsAndStart()
         
         // Listen for input source changes
@@ -50,49 +58,7 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
         LaunchAgentManager.updatePathIfNeeded()
     }
     
-    private func scheduleMenuRefresh() {
-        menuRefreshWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.constructMenu() }
-        menuRefreshWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
-    }
-    
-    func constructMenu() {
-        let menu = NSMenu()
-        
-        menu.addItem(NSMenuItem(title: "Настройки...", action: #selector(openSettings), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "Как пользоваться? 🐠", action: #selector(openHelp), keyEquivalent: "?"))
-        
-        let info = Bundle.main.infoDictionary ?? [:]
-        let version = info["CFBundleShortVersionString"] as? String ?? Version.current
-        let build = info["CFBundleVersion"] as? String ?? "unknown"
-        let versionItem = NSMenuItem(title: "Версия \(version) (\(build))", action: nil, keyEquivalent: "")
-        versionItem.isEnabled = false
-        menu.addItem(versionItem)
-        
-        // Conditional Menu Items
-        let axGranted = hasAccessibility(prompt: false)
-        let imGranted = hasInputMonitoring()
-        
-        if !axGranted || !imGranted {
-            menu.addItem(NSMenuItem.separator())
-            
-            if !axGranted {
-                menu.addItem(NSMenuItem(title: "Открыть Доступность...", action: #selector(openAccessibilitySettings), keyEquivalent: ""))
-            }
-            
-            if !imGranted {
-                menu.addItem(NSMenuItem(title: "Открыть Мониторинг ввода...", action: #selector(openInputMonitoringSettings), keyEquivalent: ""))
-            }
-            
-            menu.addItem(NSMenuItem(title: "Повторить попытку запуска", action: #selector(retryStartListener), keyEquivalent: ""))
-        }
-        
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "Выход", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-        
-        statusItem.menu = menu
-    }
+
     
     @objc func togglePopover(_ sender: AnyObject?) {
     }
@@ -181,28 +147,28 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
         // Do NOT prompt immediately. Check status first.
         let axGranted = hasAccessibility(prompt: false)
         
-        if !axGranted {
-            logDebug("Accessibility permission missing. Showing welcome/instruction window.")
-            showWelcomeWindow()
-            return
-        }
-        
-        // 2. Start Listener (Requires Accessibility)
-        // This might trigger Input Monitoring alert if not granted?
-        // Actually, creating EventTap triggers Input Monitoring.
-        // We should check if we have it before creating? 
-        // IOHIDCheckAccess check is reliable.
-        
+        // 2. Check Input Monitoring
         let imGranted = hasInputMonitoring()
-        if !imGranted {
-            logDebug("Input Monitoring permission missing. Showing welcome/instruction window.")
-            showWelcomeWindow()
+        
+        if !axGranted || !imGranted {
+            logDebug("Permissions missing: Accessibility=\(axGranted), InputMonitoring=\(imGranted)")
+            
+            // Show alert only if we haven't shown the first launch alert recently
+            // or if permissions are still missing after user was prompted
+            if !firstLaunchAlertShown {
+                // First launch alert will be shown separately
+                return
+            } else {
+                // Show welcome window for missing permissions
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.showWelcomeWindow()
+                }
+            }
             return
         }
 
         // Permissions OK. Start.
         startAppLogic()
-        scheduleMenuRefresh()
     }
     
     private func startAppLogic() {
@@ -237,29 +203,77 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
             // Попробуем еще раз через секунду.
             scheduleRetry()
         } else {
-             logDebug("BabylonFish 2.0 started successfully!")
+            logDebug("BabylonFish 3.0 started successfully!")
+            
+            // Show success notification
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.statusBarController?.showNotification(
+                    title: "BabylonFish 3.0 запущен! 🎉",
+                    message: "Теперь приложение будет автоматически переключать раскладку и исправлять опечатки."
+                )
+            }
         }
     }
 
-    private func showWelcomeWindow() {
+    private func showFirstLaunchAlert() {
+        guard !firstLaunchAlertShown else { return }
+        firstLaunchAlertShown = true
+        
         DispatchQueue.main.async {
             let alert = NSAlert()
-            alert.messageText = "Добро пожаловать в BabylonFish! 🐠"
-            alert.informativeText = "Чтобы ловить ваши опечатки, мне нужны два разрешения:\n\n1. Универсальный доступ (чтобы видеть активное окно)\n2. Мониторинг ввода (чтобы ловить клавиши)\n\nПожалуйста, нажмите 'Открыть настройки', затем включите переключатели для BabylonFish."
+            alert.messageText = "Добро пожаловать в BabylonFish 3.0! 🐠"
+            alert.informativeText = "Чтобы автоматически переключать раскладку клавиатуры и исправлять опечатки, мне нужны два разрешения:\n\n1. 🖥️ Универсальный доступ — чтобы видеть активное окно\n2. ⌨️ Мониторинг ввода — чтобы видеть нажатия клавиш\n\nБез этих разрешений приложение не сможет работать.\n\nНажмите 'Открыть настройки', затем включите переключатели для BabylonFish в обоих разделах."
             alert.alertStyle = .informational
             alert.addButton(withTitle: "Открыть настройки")
-            alert.addButton(withTitle: "Выход")
+            alert.addButton(withTitle: "Позже")
             
             let response = alert.runModal()
             if response == .alertFirstButtonReturn {
-                // Open both if possible, or just Security root
-                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-                NSWorkspace.shared.open(url)
+                // Open Accessibility settings
+                let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                NSWorkspace.shared.open(accessibilityURL)
                 
-                // Start a timer to check for permissions
+                // Open Input Monitoring after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let inputMonitoringURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+                    NSWorkspace.shared.open(inputMonitoringURL)
+                }
+                
+                // Show notification reminder
+                self.statusBarController?.showNotification(
+                    title: "BabylonFish 3.0",
+                    message: "Не забудьте включить оба разрешения в Системных настройках!"
+                )
+                
+                // Start checking for permissions
                 self.scheduleRetry()
-            } else {
-                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+    
+    private func showWelcomeWindow() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Требуются разрешения для BabylonFish 🐠"
+            alert.informativeText = "Для работы приложения нужны два разрешения:\n\n1. 🖥️ Универсальный доступ — чтобы видеть активное окно\n2. ⌨️ Мониторинг ввода — чтобы видеть нажатия клавиш\n\nБез этих разрешений приложение не сможет автоматически переключать раскладку и исправлять опечатки.\n\nНажмите 'Открыть настройки', затем включите переключатели для BabylonFish в обоих разделах."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Открыть настройки")
+            alert.addButton(withTitle: "Позже")
+            
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn {
+                // Open Accessibility settings
+                let accessibilityURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
+                NSWorkspace.shared.open(accessibilityURL)
+                
+                // Open Input Monitoring after a short delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    let inputMonitoringURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
+                    NSWorkspace.shared.open(inputMonitoringURL)
+                }
+                
+                // Start checking for permissions
+                self.scheduleRetry()
             }
         }
     }
@@ -277,14 +291,14 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
                         logDebug("Retry successful!")
                         self.retryTimer?.invalidate()
                         self.retryTimer = nil
-                        self.scheduleMenuRefresh()
+
                     }
                 } else {
                     // Если движок еще не создан, пробуем startAppLogic
                     self.retryTimer?.invalidate()
                     self.retryTimer = nil
                     self.startAppLogic()
-                    self.scheduleMenuRefresh()
+
                 }
             }
         }
@@ -333,46 +347,13 @@ class AppDelegate2: NSObject, NSApplicationDelegate {
     }
     
     func updateIcon() {
-        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
-        let sourceIDPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
-        
-        var flag: String? = nil
-        if let ptr = sourceIDPtr {
-            let id = Unmanaged<CFString>.fromOpaque(ptr).takeUnretainedValue() as String
-            if id.contains("Russian") {
-                flag = "🇷🇺"
-            } else if id.contains("US") || id.contains("English") {
-                flag = "🇺🇸"
-            }
-        }
-        
         DispatchQueue.main.async {
-            self.statusItem.button?.image = self.drawIcon(flag: flag)
+            // Icon is now handled by StatusBarController
+            self.statusBarController?.updateStatusBarIcon()
         }
     }
     
-    func drawIcon(flag: String?) -> NSImage {
-        let size = NSSize(width: 26, height: 22)
-        let img = NSImage(size: size)
-        
-        img.lockFocus()
-        
-        // Draw Fish
-        let fish = "\u{1F420}" as NSString
-        let fishAttrs = [NSAttributedString.Key.font: NSFont.systemFont(ofSize: 16)]
-        fish.draw(at: NSPoint(x: 0, y: 1), withAttributes: fishAttrs)
-        
-        // Draw Flag if available
-        if let flag = flag {
-            let flagStr = flag as NSString
-            let flagAttrs = [NSAttributedString.Key.font: NSFont.systemFont(ofSize: 10)]
-            flagStr.draw(at: NSPoint(x: 14, y: 0), withAttributes: flagAttrs)
-        }
-        
-        img.unlockFocus()
-        img.isTemplate = false // Keep colors
-        return img
-    }
+
 }
 
 // SettingsView moved to separate file

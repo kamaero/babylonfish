@@ -465,7 +465,7 @@ class EventProcessor {
             DispatchQueue.main.async {
                 let loc = NSEvent.mouseLocation
                 let point = CGPoint(x: loc.x, y: loc.y - 40)
-                window.showSuggestion(suggestion, at: point)
+                window.showCompletion(suggestion, at: point)
             }
         } else {
             clearSuggestion()
@@ -476,7 +476,7 @@ class EventProcessor {
     private func clearSuggestion() {
         currentSuggestion = nil
         DispatchQueue.main.async {
-            self.suggestionWindow?.hide()
+            self.suggestionWindow?.hideSuggestion()
         }
     }
     

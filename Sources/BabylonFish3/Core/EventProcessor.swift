@@ -511,8 +511,8 @@ class EventProcessor {
         let specialKeys: Set<Int> = [
             53, // Escape
             48, // Tab
-            49, // Space (обрабатывается отдельно)
-            36, // Return
+            // 49, // Space - используем как границу слова
+            // 36, // Return - используем как границу слова
             51, // Delete
             117, // Forward Delete
             115, // Home
