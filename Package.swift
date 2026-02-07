@@ -12,6 +12,9 @@ let package = Package(
         .executable(
             name: "BabylonFish2",
             targets: ["BabylonFish2"]),
+        .executable(
+            name: "BabylonFish3",
+            targets: ["BabylonFish3"]),
     ],
     dependencies: [
         // Dependencies go here
@@ -21,6 +24,16 @@ let package = Package(
             name: "BabylonFish2",
             dependencies: [],
             path: "Sources/BabylonFish2",
+            linkerSettings: [
+                .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
+                .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
+            ]
+        ),
+        .executableTarget(
+            name: "BabylonFish3",
+            dependencies: [],
+            path: "Sources/BabylonFish3",
+            exclude: ["README.md"],
             linkerSettings: [
                 .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
                 .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
