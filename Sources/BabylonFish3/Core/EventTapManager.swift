@@ -81,14 +81,18 @@ class EventTapManager {
     /// Останавливает захват событий
     func stop() {
         stopWatchdog()
+        guard isRunning else { return }
+
+        if let monitor = fallbackMonitor {
+            NSEvent.removeMonitor(monitor)
+            fallbackMonitor = nil
+            logDebug("Fallback monitor stopped")
+        }
         
-        guard isRunning, let tap = eventTap else { return }
-            if let monitor = fallbackMonitor {
-                NSEvent.removeMonitor(monitor)
-                fallbackMonitor = nil
-                isRunning = false
-                logDebug("Fallback monitor stopped")
-            }
+        guard let tap = eventTap else {
+            isRunning = false
+            return
+        }
         
         // Удаляем run loop source
         

@@ -16,6 +16,11 @@ class StatusBarController: NSObject {
         setupPopover()
         setupEventMonitor()
     }
+
+    func updateEngine(_ engine: BabylonFishEngine?) {
+        self.engine = engine
+        updateStatusBarIcon()
+    }
     
     private func setupStatusBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)

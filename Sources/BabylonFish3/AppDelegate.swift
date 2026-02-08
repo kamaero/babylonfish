@@ -27,8 +27,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let build = info["CFBundleVersion"] as? String ?? "unknown"
         logDebug("BabylonFish 3.0 launch: pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(bundlePath) exe=\(executablePath) version=\(version) build=\(build)")
         
-        // Create status bar controller
-        statusBarController = StatusBarController(engine: babylonFishEngine)
+        // Create status bar controller (engine can be attached later)
+        statusBarController = StatusBarController(engine: nil)
         
         // Check if this is first launch
         let isFirstLaunch = UserDefaults.standard.object(forKey: "babylonfish3_first_launch") == nil
@@ -130,6 +130,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // Show diagnostic info
             showPermissionDiagnostics(axGranted: axGranted, imGranted: imGranted)
             
+            if !imGranted {
+                // Trigger Input Monitoring prompt if possible
+                checkInputMonitoringPermissions()
+            }
+            
             // Show alert only if we haven't shown the first launch alert recently
             // or if permissions are still missing after user was prompted
             if !firstLaunchAlertShown {
@@ -230,7 +235,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         babylonFishEngine?.setSuggestionWindow(suggestionWindow)
         
         // Update status bar controller with engine
-        statusBarController = StatusBarController(engine: babylonFishEngine)
+        statusBarController?.updateEngine(babylonFishEngine)
         
         // Add observer for configuration changes
         configObserver = NotificationCenter.default.addObserver(

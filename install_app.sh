@@ -23,9 +23,16 @@ tccutil reset Accessibility com.babylonfish.app.v3 2>/dev/null || true
 tccutil reset All com.babylonfish.app.v3 2>/dev/null || true
 
 # Remove old versions to prevent confusion
-echo "Removing old versions from $INSTALL_DIR..."
-rm -rf "$INSTALL_DIR/BabylonFish"*.app
-rm -rf "$INSTALL_DIR/BabylonFish3"*.app
+echo "Removing old versions from $INSTALL_DIR and $ALT_INSTALL_DIR..."
+for dir in "$INSTALL_DIR" "$ALT_INSTALL_DIR"; do
+  [ -d "$dir" ] || continue
+  find "$dir" -maxdepth 1 -name "BabylonFish*.app" -print0 | while IFS= read -r -d '' app; do
+    if [ -x "$LSREGISTER" ]; then
+      "$LSREGISTER" -u "$app" >/dev/null 2>&1 || true
+    fi
+    rm -rf "$app"
+  done
+done
 
 rm -rf ".build"
 rm -rf "$HOME/Library/Caches/com.babylonfish.app" "$HOME/Library/Saved Application State/com.babylonfish.app.savedState"

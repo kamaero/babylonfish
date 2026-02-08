@@ -1,5 +1,6 @@
 import Cocoa
 import Carbon
+import ApplicationServices
 
 /// Главный процессор событий клавиатуры
 class EventProcessor {
@@ -151,6 +152,7 @@ class EventProcessor {
         // Обновляем контекст на основе события
         currentContext.lastEventTime = Date()
         currentContext.lastKeyCode = event.keyCode
+        currentContext.isSecureField = isSecureFocusedField()
         
         // Определяем активное приложение
         if let frontmostApp = NSWorkspace.shared.frontmostApplication {
@@ -164,24 +166,11 @@ class EventProcessor {
     }
     
     private func shouldIgnoreEvent(_ event: KeyboardEvent) -> Bool {
-        // 1. Проверяем контекст
-        let detectionContext = DetectionContext(
-            applicationType: currentContext.applicationType,
-            isSecureField: false,
-            previousWords: [],
-            userPreferences: nil
-        )
-        
-        let shouldIgnore = contextAnalyzer.shouldIgnoreInput(
-            text: event.unicodeString,
-            externalContext: detectionContext
-        )
-        
-        if shouldIgnore {
-            logDebug("Context check: ignoring event")
+        // 1. Игнорируем события без символа
+        if event.unicodeString.isEmpty {
             return true
         }
-        
+
         // 2. Проверяем модификаторы
         let flags = event.flags
         if flags.contains(.maskCommand) || flags.contains(.maskControl) {
@@ -207,7 +196,7 @@ class EventProcessor {
         // 1. Анализируем контекст
         let detectionContext = DetectionContext(
             applicationType: currentContext.applicationType,
-            isSecureField: false,
+            isSecureField: currentContext.isSecureField,
             previousWords: bufferManager.getPreviousWords(),
             userPreferences: nil
         )
@@ -484,6 +473,48 @@ class EventProcessor {
         // Упрощенная реализация
         return nil
     }
+
+    private func isSecureFocusedField() -> Bool {
+        let systemWideElement = AXUIElementCreateSystemWide()
+        var focused: AnyObject?
+        let focusedResult = AXUIElementCopyAttributeValue(
+            systemWideElement,
+            kAXFocusedUIElementAttribute as CFString,
+            &focused
+        )
+
+        guard focusedResult == .success, let focusedElement = focused else {
+            return false
+        }
+
+        var role: AnyObject?
+        let roleResult = AXUIElementCopyAttributeValue(
+            focusedElement as! AXUIElement,
+            kAXRoleAttribute as CFString,
+            &role
+        )
+
+        if roleResult == .success, let roleString = role as? String {
+            if roleString == "AXSecureTextField" {
+                return true
+            }
+        }
+
+        var subrole: AnyObject?
+        let subroleResult = AXUIElementCopyAttributeValue(
+            focusedElement as! AXUIElement,
+            kAXSubroleAttribute as CFString,
+            &subrole
+        )
+
+        if subroleResult == .success, let subroleString = subrole as? String {
+            if subroleString == "AXSecureTextField" {
+                return true
+            }
+        }
+
+        return false
+    }
     
     private func createBackspaceEvents(count: Int) -> [KeyboardEvent] {
         var events: [KeyboardEvent] = []
@@ -589,6 +620,7 @@ struct ProcessingContext {
     var lastDetectedLanguage: Language?
     var lastEventTime: Date = Date()
     var lastKeyCode: Int = 0
+    var isSecureField: Bool = false
     
     var description: String {
         return """
