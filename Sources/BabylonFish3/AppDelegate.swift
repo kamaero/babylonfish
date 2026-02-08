@@ -421,7 +421,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func runFixPermissionsScript() {
-        let scriptPath = "\(FileManager.default.currentDirectoryPath)/fix_permissions.sh"
+        var scriptPath = "\(FileManager.default.currentDirectoryPath)/fix_permissions.sh"
+        
+        // Check if script exists in Resources
+        if let resourcePath = Bundle.main.path(forResource: "fix_permissions", ofType: "sh") {
+            scriptPath = resourcePath
+        }
         
         if FileManager.default.fileExists(atPath: scriptPath) {
             logDebug("Running fix permissions script: \(scriptPath)")

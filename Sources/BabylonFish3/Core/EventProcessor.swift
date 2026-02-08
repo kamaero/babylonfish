@@ -22,6 +22,11 @@ class EventProcessor {
     private var lastProcessedEvent: KeyboardEvent?
     private var pendingCorrections: [PendingCorrection] = []
     
+    // Double Shift State
+    private var lastShiftTime: TimeInterval = 0
+    private let doubleShiftThreshold: TimeInterval = 0.3
+    private var lastShiftKeyCode: Int = 0
+    
     // Статистика
     private var totalEventsProcessed: Int = 0
     private var languageDetections: Int = 0
@@ -66,6 +71,19 @@ class EventProcessor {
         
         // 1. Обновляем контекст
         updateContext(with: event)
+        
+        // Handle Backspace explicitly
+        if event.keyCode == 51 { // Backspace
+            bufferManager.removeLast()
+            // Backspace is also a special key, so we can return here or let it continue if we want to process it further (unlikely)
+            return .default
+        }
+        
+        // Handle Arrows explicitly (clear buffer to avoid confusion)
+        if event.keyCode >= 123 && event.keyCode <= 126 {
+             bufferManager.clear()
+             return .default
+        }
         
         // 2. Проверяем, нужно ли игнорировать событие
         if shouldIgnoreEvent(event) {
@@ -388,78 +406,77 @@ class EventProcessor {
     }
     
     private func isDoubleShift(_ event: KeyboardEvent) -> Bool {
-        // Упрощенная проверка Double Shift
-        // В реальной реализации нужно отслеживать время между нажатиями
         guard event.keyCode == 56 || event.keyCode == 60 else { // Left/Right Shift
             return false
         }
         
-        // Проверяем флаги
-        let flags = event.flags
-        return flags.contains(.maskShift)
+        // Проверяем флаги: нас интересует только нажатие (Shift добавлен в флаги)
+        let isPressed = event.flags.contains(.maskShift)
+        guard isPressed else { return false }
+        
+        let now = Date().timeIntervalSince1970
+        let timeDiff = now - lastShiftTime
+        
+        // Обновляем время последнего нажатия
+        lastShiftTime = now
+        lastShiftKeyCode = event.keyCode
+        
+        // Проверяем интервал для Double Shift
+        if timeDiff < doubleShiftThreshold {
+            return true
+        }
+        
+        return false
     }
     
     private func handleDoubleShift() -> EventProcessingResult {
         logDebug("Double Shift detected - manual correction requested")
         
-        guard let selectedText = getSelectedText() else {
-            logDebug("No text selected")
+        // 1. Пытаемся получить текст для коррекции
+        var textToCorrect = getSelectedText()
+        var isSelection = true
+        
+        if textToCorrect == nil {
+            // Если нет выделения, берем текущее слово из буфера
+            if let currentWord = bufferManager.getCurrentWord(), !currentWord.isEmpty {
+                textToCorrect = currentWord
+                isSelection = false
+                logDebug("Using current word from buffer: '\(currentWord)'")
+            }
+        }
+        
+        guard let text = textToCorrect else {
+            logDebug("No text to correct (selection empty and buffer empty)")
             return .default
         }
         
-        // Анализируем выбранный текст
-        let detectionContext = DetectionContext(
-            applicationType: currentContext.applicationType,
-            isSecureField: false,
-            previousWords: bufferManager.getPreviousWords(),
-            userPreferences: nil
-        )
+        // 2. Определяем целевой язык (инвертируем текущий)
+        // Если текст определен как английский -> меняем на русский, и наоборот
+        let detected = neuralLanguageClassifier.classifyLanguage(text).language ?? .english
+        let targetLanguage: Language = (detected == .english) ? .russian : .english
         
-        let contextAnalysis = contextAnalyzer.analyzeContext(
-            for: selectedText,
-            externalContext: detectionContext
-        )
-        logDebug("Double Shift context: \(contextAnalysis.description)")
+        logDebug("Double Shift: '\(text)' (\(detected)) -> \(targetLanguage)")
         
-        let languageResult = neuralLanguageClassifier.classifyLanguage(selectedText)
-        logDebug("Double Shift classifier: \(languageResult.description)")
-        
-        var selectedLanguage: Language?
-        var selectedConfidence: Double = 0
-        
-        if contextAnalysis.isConfident, let ctxLang = contextAnalysis.suggestedLanguage {
-            selectedLanguage = ctxLang
-            selectedConfidence = contextAnalysis.confidence
-            logDebug("Double Shift decision: using context (\(selectedLanguage!), \(String(format: "%.2f", selectedConfidence)))")
-        } else if let clsLang = languageResult.language {
-            selectedLanguage = clsLang
-            selectedConfidence = languageResult.confidence
-            logDebug("Double Shift decision: using classifier (\(selectedLanguage!), \(String(format: "%.2f", selectedConfidence)))")
-        }
-        
-        if let detectedLanguage = selectedLanguage, selectedConfidence >= config.confidenceThreshold {
-            // Предлагаем переключить раскладку для выбранного текста
-            logDebug("Selected text '\(selectedText)' detected as \(detectedLanguage) (conf=\(String(format: "%.2f", selectedConfidence)))")
-            
-            // Обучаем модель на ручном выборе
-            let learningContext = LearningContext(
-                applicationBundleId: currentContext.bundleIdentifier,
-                applicationType: currentContext.applicationType,
-                textContext: selectedText,
-                selectedText: selectedText
+        // 3. Формируем события для замены
+        if isSelection {
+            // Для выделенного текста: просто печатаем поверх (заменяет выделение)
+            let events = layoutSwitcher.getKeyEventsForWord(text, inLanguage: targetLanguage)
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false, // Не блокируем Shift, чтобы не ломать системное поведение
+                eventsToSend: events
             )
+        } else {
+            // Для слова из буфера: стираем и печатаем заново
+            let backspaceEvents = createBackspaceEvents(count: text.count)
+            let typeEvents = layoutSwitcher.getKeyEventsForWord(text, inLanguage: targetLanguage)
             
-            learningManager.learn(from: LearningEvent(
-                type: .languageSelection,
-                language: detectedLanguage,
-                originalText: selectedText,
-                applicationBundleId: currentContext.bundleIdentifier,
-                applicationType: currentContext.applicationType,
-                context: learningContext
-            ))
+            bufferManager.clearWord()
+            
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: backspaceEvents + typeEvents
+            )
         }
-        
-        return .default
     }
     
     private func getSelectedText() -> String? {

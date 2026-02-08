@@ -1,8 +1,6 @@
 #!/bin/bash
 
-VERSION_FILE="Sources/BabylonFish/Version.swift"
-INFO_PLIST="Sources/BabylonFish/Resources/Info.plist"
-PLISTBUDDY="/usr/libexec/PlistBuddy"
+VERSION_FILE="Sources/BabylonFish3/Version.swift"
 
 # 1. Read current version from Version.swift
 # grep for string inside quotes
@@ -33,13 +31,5 @@ echo "New version: $NEW_VERSION"
 
 # 3. Update Version.swift
 sed -i '' "s/static let current = \"$CURRENT_VERSION\"/static let current = \"$NEW_VERSION\"/" "$VERSION_FILE"
-
-# 4. Update Info.plist
-if [ -x "$PLISTBUDDY" ]; then
-    "$PLISTBUDDY" -c "Set :CFBundleShortVersionString $NEW_VERSION" "$INFO_PLIST" 2>/dev/null || \
-    "$PLISTBUDDY" -c "Add :CFBundleShortVersionString string $NEW_VERSION" "$INFO_PLIST"
-else
-    echo "Warning: PlistBuddy not found, Info.plist not updated."
-fi
 
 echo "Version updated to $NEW_VERSION"

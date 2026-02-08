@@ -36,6 +36,13 @@ echo "Creating universal binary..."
 mkdir -p "$OUT_APP/Contents/MacOS"
 mkdir -p "$OUT_APP/Contents/Resources"
 
+# Copy fix_permissions.sh to Resources
+if [ -f "fix_permissions.sh" ]; then
+    cp fix_permissions.sh "$OUT_APP/Contents/Resources/"
+    chmod +x "$OUT_APP/Contents/Resources/fix_permissions.sh"
+    echo "Copied fix_permissions.sh to Resources"
+fi
+
 lipo -create -output "$OUT_APP/Contents/MacOS/BabylonFish3" \
     ".build/arm64-apple-macosx/release/BabylonFish3" \
     ".build/x86_64-apple-macosx/release/BabylonFish3"

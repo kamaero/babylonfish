@@ -1,6 +1,6 @@
 #!/bin/bash
 
-APP_NAME="BabylonFish"
+APP_NAME="BabylonFish3"
 BUILD_DIR=".build/release"
 # APP_BUNDLE will be defined after version increment
 CONTENTS_DIR_NAME="Contents"
@@ -19,12 +19,13 @@ pkill -9 "$APP_NAME" 2>/dev/null || true
 # Reset permissions (Accessibility/Input Monitoring)
 # This forces the system to forget the old binary signature and allows re-requesting permissions.
 echo "Resetting TCC permissions for $APP_NAME..."
-tccutil reset Accessibility com.babylonfish.app 2>/dev/null || true
-tccutil reset All com.babylonfish.app 2>/dev/null || true
+tccutil reset Accessibility com.babylonfish.app.v3 2>/dev/null || true
+tccutil reset All com.babylonfish.app.v3 2>/dev/null || true
 
 # Remove old versions to prevent confusion
 echo "Removing old versions from $INSTALL_DIR..."
 rm -rf "$INSTALL_DIR/BabylonFish"*.app
+rm -rf "$INSTALL_DIR/BabylonFish3"*.app
 
 rm -rf ".build"
 rm -rf "$HOME/Library/Caches/com.babylonfish.app" "$HOME/Library/Saved Application State/com.babylonfish.app.savedState"
@@ -34,10 +35,12 @@ chmod +x ./increment_version.sh
 ./increment_version.sh
 
 # Read Version to define APP_BUNDLE name
-if [ -x "$PLISTBUDDY" ]; then
-    VERSION=$("$PLISTBUDDY" -c "Print :CFBundleShortVersionString" "Sources/BabylonFish/Resources/Info.plist")
-else
-    VERSION="1.0.x"
+VERSION_FILE="Sources/BabylonFish3/Version.swift"
+if [ -f "$VERSION_FILE" ]; then
+    VERSION=$(grep -o '"[^"]*"' "$VERSION_FILE" | tr -d '"')
+fi
+if [ -z "$VERSION" ]; then
+    VERSION="3.0.0"
 fi
 
 APP_BUNDLE="${APP_NAME}_v${VERSION}.app"
@@ -45,8 +48,8 @@ CONTENTS_DIR="$APP_BUNDLE/$CONTENTS_DIR_NAME"
 MACOS_DIR="$CONTENTS_DIR/$MACOS_DIR_NAME"
 RESOURCES_DIR="$CONTENTS_DIR/$RESOURCES_DIR_NAME"
 
-swift build -c release --product BabylonFish2 --disable-sandbox
-arch -x86_64 swift build -c release --product BabylonFish2 --disable-sandbox
+swift build -c release --product BabylonFish3 --arch arm64 --disable-sandbox
+arch -x86_64 swift build -c release --product BabylonFish3 --arch x86_64 --disable-sandbox
 
 echo "Creating $APP_BUNDLE..."
 
@@ -58,23 +61,64 @@ mkdir -p "$DIST_DIR"
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
+# Copy fix_permissions.sh to Resources if present
+if [ -f "fix_permissions.sh" ]; then
+    cp fix_permissions.sh "$RESOURCES_DIR/"
+    chmod +x "$RESOURCES_DIR/fix_permissions.sh"
+    echo "Copied fix_permissions.sh to Resources"
+fi
+
 # Copy executable
-ARM_BIN=".build/arm64-apple-macosx/release/BabylonFish2"
-X86_BIN=".build/x86_64-apple-macosx/release/BabylonFish2"
+ARM_BIN=".build/arm64-apple-macosx/release/BabylonFish3"
+X86_BIN=".build/x86_64-apple-macosx/release/BabylonFish3"
 if [ -f "$ARM_BIN" ] && [ -f "$X86_BIN" ]; then
-    lipo -create -output "$MACOS_DIR/BabylonFish" "$ARM_BIN" "$X86_BIN"
+    lipo -create -output "$MACOS_DIR/BabylonFish3" "$ARM_BIN" "$X86_BIN"
 else
     echo "Error: Missing architecture builds: arm64=$([ -f \"$ARM_BIN\" ] && echo ok || echo missing), x86_64=$([ -f \"$X86_BIN\" ] && echo ok || echo missing)"
     exit 1
 fi
 
-# Copy Info.plist
-cp "Sources/BabylonFish/Resources/Info.plist" "$CONTENTS_DIR/"
+# Create Info.plist
+cat > "$CONTENTS_DIR/Info.plist" << EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>BabylonFish3</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.babylonfish.app.v3</string>
+    <key>CFBundleName</key>
+    <string>BabylonFish 3.0</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$VERSION</string>
+    <key>CFBundleVersion</key>
+    <string>$BUILD_NUMBER</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2025 BabylonFish. All rights reserved.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
+EOF
 
 # Copy Icons if they exist
-if [ -f "Sources/BabylonFish/Resources/AppIcon.icns" ]; then
-    echo "Copying AppIcon.icns..."
-    cp "Sources/BabylonFish/Resources/AppIcon.icns" "$RESOURCES_DIR/"
+if [ -f "Resources/icon.icns" ]; then
+    echo "Copying icon.icns..."
+    cp "Resources/icon.icns" "$RESOURCES_DIR/"
 fi
 
 # Tray icons are now generated dynamically (SF Symbols), no need to copy PNGs

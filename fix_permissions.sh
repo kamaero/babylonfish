@@ -24,8 +24,12 @@ echo "2. Resetting TCC permissions..."
 echo "   - Resetting Accessibility for $APP_ID..."
 tccutil reset Accessibility "$APP_ID" 2>/dev/null || echo "   Warning: Could not reset Accessibility"
 
-# Input Monitoring is trickier - need to use sqlite
-echo "   - Checking Input Monitoring permissions..."
+# Reset Input Monitoring (using All, which covers everything on modern macOS)
+echo "   - Resetting All permissions for $APP_ID..."
+tccutil reset All "$APP_ID" 2>/dev/null || echo "   Warning: Could not reset All permissions"
+
+# Try to remove from database directly (best effort, might fail due to SIP)
+echo "   - Attempting to remove from TCC database (if accessible)..."
 TCC_DB="/Library/Application Support/com.apple.TCC/TCC.db"
 USER_TCC_DB="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
 
@@ -47,8 +51,9 @@ else
 fi
 
 echo ""
-echo "3. Killing TCC daemon to reload permissions..."
-sudo pkill -f tccd 2>/dev/null || true
+echo "3. Attempting to reload permissions..."
+# sudo pkill -f tccd 2>/dev/null || true # Requires sudo, won't work from app
+echo "   (Skipping tccd restart as it requires sudo)"
 sleep 2
 
 echo ""
@@ -85,7 +90,7 @@ echo "1. System Settings windows should be open"
 echo "2. Make sure BabylonFish3 is NOT in the lists"
 echo "3. Close System Settings completely"
 echo "4. Run BabylonFish3 again:"
-echo "   open dist/BabylonFish3_final.app"
+echo "   open dist/BabylonFish3_final_v*.app"
 echo "5. When prompted, add BabylonFish3 to BOTH lists"
 echo "6. Check if permissions work now"
 echo ""

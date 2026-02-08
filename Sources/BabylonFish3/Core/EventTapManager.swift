@@ -13,10 +13,12 @@ class EventTapManager {
     private var isRunning = false
     private var isEnabled = true
     private var fallbackMonitor: Any?
+    private var watchdogTimer: Timer?
+    private var lastEventTime: TimeInterval = 0
     
     // Конфигурация
-    private let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
-    private let tapLocation: CGEventTapLocation = .cghidEventTap
+    private let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
+    private let tapLocation: CGEventTapLocation = .cgSessionEventTap
     
     // Зависимости
     private weak var eventProcessor: EventProcessor?
@@ -69,11 +71,17 @@ class EventTapManager {
         startTime = Date()
         
         logDebug("EventTapManager started successfully")
+        
+        // Запускаем watchdog
+        startWatchdog()
+        
         return true
     }
     
     /// Останавливает захват событий
     func stop() {
+        stopWatchdog()
+        
         guard isRunning, let tap = eventTap else { return }
             if let monitor = fallbackMonitor {
                 NSEvent.removeMonitor(monitor)
@@ -134,6 +142,33 @@ class EventTapManager {
     
     // MARK: - Private Methods
     
+    private func startWatchdog() {
+        stopWatchdog()
+        DispatchQueue.main.async {
+            self.watchdogTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
+                self?.checkTapStatus()
+            }
+        }
+    }
+    
+    private func stopWatchdog() {
+        watchdogTimer?.invalidate()
+        watchdogTimer = nil
+    }
+    
+    private func checkTapStatus() {
+        guard let tap = eventTap else { return }
+        
+        // Проверяем, включен ли tap
+        let isTapEnabled = CGEvent.tapIsEnabled(tap: tap)
+        if !isTapEnabled {
+            logDebug("WATCHDOG: Event tap was disabled! Re-enabling...")
+            CGEvent.tapEnable(tap: tap, enable: true)
+            let isNowEnabled = CGEvent.tapIsEnabled(tap: tap)
+            logDebug("WATCHDOG: Re-enable result: \(isNowEnabled)")
+        }
+    }
+
     private func createEventTap() -> CFMachPort? {
         logDebug("Creating event tap with mask: \(eventMask)")
         
@@ -165,12 +200,26 @@ class EventTapManager {
         // Включаем tap
         CGEvent.tapEnable(tap: tap, enable: true)
         
-        logDebug("Event tap created successfully")
+        if !CGEvent.tapIsEnabled(tap: tap) {
+            logDebug("WARNING: Tap created but not enabled. Retrying enable...")
+            CGEvent.tapEnable(tap: tap, enable: true)
+        }
+        
+        logDebug("Event tap created successfully. Enabled: \(CGEvent.tapIsEnabled(tap: tap))")
         return tap
     }
     
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         eventsProcessed += 1
+        lastEventTime = Date().timeIntervalSince1970
+        
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            logDebug("WARNING: Event tap disabled by system (type=\(type.rawValue)). Re-enabling...")
+            if let tap = eventTap {
+                CGEvent.tapEnable(tap: tap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
         
         let unicodePreview = event.getUnicodeString() ?? ""
         logDebug("Event received: type=\(type.rawValue) unicode='\(unicodePreview)' flags=\(event.flags.rawValue)")
@@ -404,17 +453,10 @@ class EventTapManager {
     
     private func checkInputMonitoringPermissions() -> Bool {
         // В macOS 10.15+ нужно Input Monitoring permission
-        // Эта проверка упрощенная, в реальности нужно использовать более сложную логику
-        #if compiler(>=5.3)
-        if #available(macOS 10.15, *) {
-            // Для простоты возвращаем true, в реальном приложении нужно
-            // использовать CGRequestPostEventAccess или другие методы
-            logDebug("Input Monitoring check: assuming granted for development")
-            return true
-        }
-        #endif
-        
-        return true
+        let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+        let granted = (access == kIOHIDAccessTypeGranted)
+        logDebug("Input Monitoring check: \(granted ? "granted" : "denied") (access=\(access))")
+        return granted
     }
     
     deinit {

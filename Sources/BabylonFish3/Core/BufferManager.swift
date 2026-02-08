@@ -87,6 +87,24 @@ class BufferManager {
         return Array(previousWords.suffix(count))
     }
     
+    /// Удаляет последний символ из буфера
+    func removeLast() {
+        guard !characterBuffer.isEmpty else { return }
+        
+        let removedChar = characterBuffer.removeLast()
+        
+        // Если символ был частью текущего слова, удаляем и оттуда
+        if !wordBoundaryCharacters.contains(removedChar) {
+            if !wordBuffer.isEmpty {
+                wordBuffer.removeLast()
+            }
+        }
+        // Если удалили разделитель, мы не восстанавливаем предыдущее слово в wordBuffer
+        // Это упрощение, но для коррекции опечаток обычно достаточно
+        
+        logDebug("BufferManager: Removed last char. Word buffer: '\(wordBuffer)'")
+    }
+    
     /// Очищает текущее слово из буфера
     func clearWord() {
         if !wordBuffer.isEmpty {
