@@ -1,26 +1,31 @@
 #!/bin/bash
 
-APP_NAME="BabylonFish3"
+# Configuration
+APP_NAME="BabylonFish ML"
+EXECUTABLE_NAME="BabylonFish3"
+BUNDLE_ID="com.babylonfish.app.ml"
+VERSION="3.0.17"
+INSTALL_DIR="$HOME/Applications"
 BUILD_DIR=".build/release"
+
 # APP_BUNDLE will be defined after version increment
 CONTENTS_DIR_NAME="Contents"
 MACOS_DIR_NAME="MacOS"
 RESOURCES_DIR_NAME="Resources"
 
-INSTALL_DIR="$HOME/Программы"
 DIST_DIR="dist"
 PLISTBUDDY="/usr/libexec/PlistBuddy"
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 BUILD_NUMBER="$(date +%s)"
-ALT_INSTALL_DIR="$HOME/Applications"
+ALT_INSTALL_DIR=""
 
 pkill -9 "$APP_NAME" 2>/dev/null || true
 
 # Reset permissions (Accessibility/Input Monitoring)
 # This forces the system to forget the old binary signature and allows re-requesting permissions.
 echo "Resetting TCC permissions for $APP_NAME..."
-tccutil reset Accessibility com.babylonfish.app.v3 2>/dev/null || true
-tccutil reset All com.babylonfish.app.v3 2>/dev/null || true
+tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+tccutil reset All "$BUNDLE_ID" 2>/dev/null || true
 
 # Remove old versions to prevent confusion
 echo "Removing old versions from $INSTALL_DIR and $ALT_INSTALL_DIR..."
@@ -50,7 +55,7 @@ if [ -z "$VERSION" ]; then
     VERSION="3.0.0"
 fi
 
-APP_BUNDLE="${APP_NAME}_v${VERSION}.app"
+APP_BUNDLE="${APP_NAME}.app"
 CONTENTS_DIR="$APP_BUNDLE/$CONTENTS_DIR_NAME"
 MACOS_DIR="$CONTENTS_DIR/$MACOS_DIR_NAME"
 RESOURCES_DIR="$CONTENTS_DIR/$RESOURCES_DIR_NAME"
@@ -96,9 +101,9 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
     <key>CFBundleIconFile</key>
     <string>icon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.babylonfish.app.v3</string>
+    <string>$BUNDLE_ID</string>
     <key>CFBundleName</key>
-    <string>BabylonFish 3.0</string>
+    <string>$APP_NAME</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -118,6 +123,10 @@ cat > "$CONTENTS_DIR/Info.plist" << EOF
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>BabylonFish needs Input Monitoring to detect typing and switch keyboard layouts automatically.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>BabylonFish needs Accessibility to correct text in other applications.</string>
 </dict>
 </plist>
 EOF
@@ -150,9 +159,9 @@ mkdir -p "$INSTALL_DIR"
 ditto "$DIST_DIR/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"
 xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true
 if [ -x "/usr/bin/codesign" ]; then
-  /usr/bin/codesign --force --deep --sign - "$INSTALL_DIR/$APP_BUNDLE" >/dev/null 2>&1 || true
+  /usr/bin/codesign --force --deep --sign - --entitlements Entitlements.plist "$INSTALL_DIR/$APP_BUNDLE" >/dev/null 2>&1 || true
 fi
-if [ "$INSTALL_DIR" != "$ALT_INSTALL_DIR" ]; then
+if [ -n "$ALT_INSTALL_DIR" ] && [ "$INSTALL_DIR" != "$ALT_INSTALL_DIR" ]; then
   rm -rf "$ALT_INSTALL_DIR/$APP_BUNDLE"
 fi
 

@@ -8,13 +8,18 @@ class FileLogger {
     private let oslog: OSLog
     
     init() {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        logFileURL = home.appendingPathComponent("babylonfish_debug.log")
+        // Force log to user directory to ensure visibility even when running as root
+        let logPath = "/Users/xkr/babylonfish_debug.log"
+        logFileURL = URL(fileURLWithPath: logPath)
+        
         oslog = OSLog(subsystem: "com.babylonfish.app", category: "runtime")
         // Create file if not exists
         if !FileManager.default.fileExists(atPath: logFileURL.path) {
             try? "".write(to: logFileURL, atomically: true, encoding: .utf8)
         }
+        
+        // Ensure everyone can write to it (in case of user/root switching)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o666], ofItemAtPath: logFileURL.path)
     }
     
     func log(_ message: String) {

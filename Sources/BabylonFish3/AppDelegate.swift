@@ -124,16 +124,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         logDebug("Permission check: Accessibility=\(axGranted), InputMonitoring=\(imGranted)")
         
-        if !axGranted || !imGranted {
+        if !imGranted {
             logDebug("Permissions missing: Accessibility=\(axGranted), InputMonitoring=\(imGranted)")
             
             // Show diagnostic info
             showPermissionDiagnostics(axGranted: axGranted, imGranted: imGranted)
             
-            if !imGranted {
-                // Trigger Input Monitoring prompt if possible
-                checkInputMonitoringPermissions()
-            }
+            // Trigger Input Monitoring prompt if possible
+            checkInputMonitoringPermissions()
             
             // Show alert only if we haven't shown the first launch alert recently
             // or if permissions are still missing after user was prompted
@@ -147,6 +145,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             return
+        }
+        
+        if !axGranted {
+            logDebug("Warning: Accessibility is missing. App will run with reduced functionality (no context awareness).")
         }
 
         // Permissions OK. Start.
@@ -385,7 +387,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func hasInputMonitoring() -> Bool {
-        return IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+        // IOHIDCheckAccess returns:
+        // 0 = kIOHIDAccessTypeNone (Denied)
+        // 1 = kIOHIDAccessTypeMonitor (Granted)
+        // 2 = kIOHIDAccessTypeModify (Granted + Modify, rare but valid)
+        let status = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
+        logDebug("IOHIDCheckAccess raw status: \(status.rawValue), expected Granted: \(kIOHIDAccessTypeGranted.rawValue)")
+        
+        // Explicitly check for raw values 1 and 2, or the constant
+        return status == kIOHIDAccessTypeGranted || status.rawValue == 1 || status.rawValue == 2
     }
     
     func checkAccessibilityPermissions() {

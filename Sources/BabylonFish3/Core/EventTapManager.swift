@@ -49,12 +49,19 @@ class EventTapManager {
         // Проверяем permissions
         let axOk = checkAccessibilityPermissions()
         let imOk = checkInputMonitoringPermissions()
-        if !axOk || !imOk {
+        
+        // If Input Monitoring is missing, we must use fallback
+        if !imOk {
             startFallback()
             isRunning = true
             startTime = Date()
-            logDebug("EventTapManager started in fallback mode")
+            logDebug("EventTapManager started in fallback mode (Input Monitoring missing)")
             return true
+        }
+        
+        // If Accessibility is missing, we warn but proceed with Event Tap
+        if !axOk {
+            logDebug("Warning: Accessibility missing. Context checks will fail, but Event Tap will work.")
         }
         
         // Создаем event tap
@@ -458,7 +465,8 @@ class EventTapManager {
     private func checkInputMonitoringPermissions() -> Bool {
         // В macOS 10.15+ нужно Input Monitoring permission
         let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-        let granted = (access == kIOHIDAccessTypeGranted)
+        // Access 0 = Denied, 1 = Granted, 2 = Granted (Modify)
+        let granted = (access == kIOHIDAccessTypeGranted) || (access.rawValue == 1) || (access.rawValue == 2)
         logDebug("Input Monitoring check: \(granted ? "granted" : "denied") (access=\(access))")
         return granted
     }

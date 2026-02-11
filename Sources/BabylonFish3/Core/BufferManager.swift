@@ -108,8 +108,12 @@ class BufferManager {
     /// Очищает текущее слово из буфера
     func clearWord() {
         if !wordBuffer.isEmpty {
+            totalWordsProcessed += 1
             previousWords.append(wordBuffer)
             bufferHistory.append(wordBuffer)
+            
+            logDebug("Word processed and cleared: '\(wordBuffer)'")
+            
             wordBuffer = ""
         }
     }
@@ -173,13 +177,11 @@ class BufferManager {
         
         // Проверяем, является ли символ границей слова
         if wordBoundaryCharacters.contains(character) {
-            // Если буфер слова не пустой, слово завершено
-            if !wordBuffer.isEmpty {
-                completeCurrentWord()
-            }
+            // ВАЖНО: Мы НЕ вызываем completeCurrentWord() здесь автоматически.
+            // Мы оставляем слово в wordBuffer, чтобы EventProcessor мог его прочитать и обработать.
+            // EventProcessor сам вызовет clearWord() после обработки.
             
-            // Добавляем символ-разделитель в общий буфер
-            // (уже добавлен выше)
+            // Просто добавляем разделитель в историю, если нужно (но это уже делает clearWord)
         } else {
             // Добавляем символ в буфер слова
             wordBuffer.append(character)

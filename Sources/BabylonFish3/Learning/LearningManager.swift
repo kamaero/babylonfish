@@ -22,6 +22,16 @@ class LearningManager {
     private var appPreferences: [String: AppPreference] = [:] // bundleId → предпочтения
     private var contextPatterns: [ContextPattern] = []
     
+    // Dataset collection
+    private let datasetPath: URL? = {
+        if let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            let dir = root.appendingPathComponent("BabylonFish/ML/Data")
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            return dir.appendingPathComponent("user_corrections.csv")
+        }
+        return nil
+    }()
+    
     // Время последнего сохранения
     private var lastSaveTime: Date = Date()
     
@@ -63,8 +73,18 @@ class LearningManager {
             learnLanguageSelection(from: event)
         case .correctionAcceptance:
             learnCorrectionAcceptance(from: event)
+            // Save positive example
+            if let text = event.originalText, let lang = event.language {
+                appendToDataset(text: text, label: lang.rawValue)
+            }
         case .correctionRejection:
             learnCorrectionRejection(from: event)
+            // Save negative example (user rejected our switch, so the original input was likely correct in the OTHER language)
+            if let text = event.originalText, let rejectedLang = event.language {
+                // If user rejected RU, it means it was EN (simplified)
+                let correctLang = (rejectedLang == .russian) ? "en" : "ru"
+                appendToDataset(text: text, label: correctLang)
+            }
         case .autoCompleteSelection:
             learnAutoCompleteSelection(from: event)
         case .contextPattern:
@@ -284,6 +304,27 @@ class LearningManager {
         ]
     }
     
+    // MARK: - Dataset Collection
+    
+    private func appendToDataset(text: String, label: String) {
+        guard let url = datasetPath else { return }
+        
+        let csvLine = "\"\(text)\",\(label)\n"
+        
+        if !FileManager.default.fileExists(atPath: url.path) {
+            let header = "text,label\n"
+            try? header.write(to: url, atomically: true, encoding: .utf8)
+        }
+        
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            if let data = csvLine.data(using: .utf8) {
+                handle.write(data)
+            }
+            try? handle.close()
+        }
+    }
+
     // MARK: - Private Methods
     
     private func setupAutoSave() {

@@ -7,11 +7,12 @@ class NeuralLanguageClassifier {
     
     // Модель CoreML для классификации языка
     private var mlModel: MLModel?
+    private var customModel: NLModel?
     private var nlpModel: NLLanguageRecognizer?
     
     // Конфигурация
     private var isEnabled: Bool = true
-    private var confidenceThreshold: Double = 0.7
+    private var confidenceThreshold: Double = 0.5 // Lowered from 0.7 for better responsiveness
     private var maxInputLength: Int = 100
     
     // Кэш для результатов
@@ -43,10 +44,20 @@ class NeuralLanguageClassifier {
     
     /// Настраивает кастомную CoreML модель
     private func setupCustomModel() {
-        // В реальной реализации здесь будет загрузка обученной модели
-        // Пока используем заглушку
-        
-        logDebug("Custom CoreML model: using fallback implementation")
+        do {
+            // Try to find the compiled model in the bundle
+            // SwiftPM compiles .mlmodel to .mlmodelc directory structure
+            if let modelUrl = Bundle.module.url(forResource: "BabylonFishClassifier", withExtension: "mlmodelc") {
+                // Initialize NLModel (since we trained a Text Classifier)
+                let model = try NLModel(contentsOf: modelUrl)
+                self.customModel = model
+                logDebug("Custom CoreML model loaded successfully from \(modelUrl.path)")
+            } else {
+                logDebug("Could not find BabylonFishClassifier.mlmodelc in bundle")
+            }
+        } catch {
+            logDebug("Failed to load custom model: \(error)")
+        }
     }
     
     /// Настраивает встроенный распознаватель языка от Apple
@@ -387,6 +398,30 @@ class NeuralLanguageClassifier {
     }
     
     private func classifyWithCustomModel(_ text: String, features: TextFeatures) -> (language: Language, confidence: Double)? {
+        if let model = customModel {
+            // Use NLModel
+            guard let label = model.predictedLabel(for: text) else {
+                return nil
+            }
+            
+            // Get confidence
+            let hypothesis = model.predictedLabelHypotheses(for: text, maximumCount: 1)
+            let confidence = hypothesis[label] ?? 0.0
+            
+            // Map label string to Language enum
+            let language: Language
+            if label == "ru" || label == "ru_wrong" {
+                 language = .russian
+            } else if label == "en" {
+                 language = .english
+            } else {
+                 return nil
+            }
+            
+            logDebug("Custom CoreML Prediction: \(label) (\(confidence))")
+            return (language, confidence)
+        }
+        
         // В реальной реализации здесь будет вызов CoreML модели
         // Пока используем эвристики на основе фич
         

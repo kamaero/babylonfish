@@ -34,9 +34,14 @@ let package = Package(
             dependencies: [],
             path: "Sources/BabylonFish3",
             exclude: ["README.md"],
+            resources: [
+                .process("Resources")
+            ],
             linkerSettings: [
                 .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
-                .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
+                .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS])),
+                .unsafeFlags(["-framework", "CoreML"], .when(platforms: [.macOS])),
+                .unsafeFlags(["-framework", "NaturalLanguage"], .when(platforms: [.macOS]))
             ]
         ),
     ]

@@ -271,27 +271,33 @@ class ContextAnalyzer {
     }
     
     private func convertTextToKeyCodes(_ text: String) -> [Int] {
-        // Используем KeyMapper для конвертации текста в коды клавиш
-        // Для простоты используем ASCII коды, но в реальной реализации
-        // нужно учитывать раскладку клавиатуры
+        // Reverse mapping from Character to KeyCode
+        // This allows us to reconstruct the physical key presses from the text
+        
+        let charToCode: [String: Int] = [
+            // English
+            "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9,
+            "b": 11, "q": 12, "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19,
+            "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25, "7": 26, "-": 27, "8": 28,
+            "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "l": 37, "j": 38,
+            "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
+            "`": 50, " ": 49,
+            
+            // Russian
+            "ф": 0, "ы": 1, "в": 2, "а": 3, "р": 4, "п": 5, "я": 6, "ч": 7, "с": 8, "м": 9,
+            "и": 11, "й": 12, "ц": 13, "у": 14, "к": 15, "н": 16, "е": 17,
+            "ъ": 30, "щ": 31, "г": 32, "х": 33, "ш": 34, "з": 35, "д": 37, "о": 38,
+            "э": 39, "л": 40, "ж": 41, "ё": 50, "б": 43, "т": 45, "ь": 46, "ю": 47
+        ]
+        
         var keyCodes: [Int] = []
         
-        for char in text {
-            // Преобразуем символ в его ASCII/Unicode значение
-            let scalar = String(char).unicodeScalars.first?.value ?? 0
-            
-            // Для буквенных символов используем их код
-            if char.isLetter {
-                // Для английских букв используем их ASCII код
-                if let asciiValue = char.asciiValue {
-                    keyCodes.append(Int(asciiValue))
-                } else {
-                    // Для не-ASCII символов (кириллица) используем Unicode скаляр
-                    keyCodes.append(Int(scalar))
-                }
-            } else {
-                // Для не-буквенных символов используем их код
-                keyCodes.append(Int(scalar))
+        for char in text.lowercased() {
+            if let code = charToCode[String(char)] {
+                keyCodes.append(code)
+            } else if let asciiValue = char.asciiValue {
+                // Fallback for other ASCII characters
+                keyCodes.append(Int(asciiValue))
             }
         }
         

@@ -8,7 +8,7 @@ CURRENT_USER=$(whoami)
 echo "Current user: $CURRENT_USER"
 
 # App identifiers
-APP_ID="com.babylonfish.app.v3"
+APP_ID="com.babylonfish.app.v3.ml"
 APP_NAME="BabylonFish3"
 
 echo ""
