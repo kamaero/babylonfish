@@ -29,3 +29,1004 @@ building project,en
 сборка проекта,ru
 version control,en
 контроль версий,ru
+hello,en
+world,en
+good,en
+morning,en
+evening,en
+night,en
+day,en
+week,en
+month,en
+year,en
+time,en
+date,en
+now,en
+today,en
+tomorrow,en
+yesterday,en
+please,en
+thank,en
+you,en
+welcome,en
+sorry,en
+excuse,en
+yes,en
+no,en
+maybe,en
+ok,en
+okay,en
+right,en
+wrong,en
+true,en
+false,en
+new,en
+old,en
+big,en
+small,en
+long,en
+short,en
+high,en
+low,en
+fast,en
+slow,en
+good,en
+bad,en
+better,en
+best,en
+worse,en
+worst,en
+more,en
+less,en
+much,en
+many,en
+one,en
+two,en
+three,en
+four,en
+five,en
+six,en
+seven,en
+eight,en
+nine,en
+ten,en
+first,en
+second,en
+third,en
+last,en
+next,en
+previous,en
+before,en
+after,en
+during,en
+while,en
+with,en
+without,en
+from,en
+to,en
+at,en
+in,en
+on,en
+by,en
+for,en
+of,en
+and,en
+or,en
+but,en
+if,en
+then,en
+else,en
+when,en
+where,en
+why,en
+how,en
+what,en
+which,en
+who,en
+whom,en
+whose,en
+this,en
+that,en
+these,en
+those,en
+computer,en
+software,en
+hardware,en
+program,en
+code,en
+developer,en
+engineer,en
+algorithm,en
+function,en
+variable,en
+constant,en
+array,en
+string,en
+number,en
+boolean,en
+class,en
+object,en
+method,en
+property,en
+protocol,en
+interface,en
+struct,en
+enum,en
+if,en
+else,en
+for,en
+while,en
+switch,en
+case,en
+break,en
+continue,en
+return,en
+import,en
+export,en
+module,en
+package,en
+library,en
+framework,en
+dependency,en
+git,en
+commit,en
+push,en
+pull,en
+merge,en
+branch,en
+repository,en
+clone,en
+debug,en
+error,en
+warning,en
+exception,en
+throw,en
+catch,en
+try,en
+finally,en
+database,en
+query,en
+table,en
+column,en
+row,en
+index,en
+key,en
+value,en
+api,en
+rest,en
+json,en
+xml,en
+http,en
+https,en
+url,en
+uri,en
+endpoint,en
+server,en
+client,en
+request,en
+response,en
+header,en
+body,en
+status,en
+code,en
+test,en
+unit,en
+integration,en
+mock,en
+stub,en
+assert,en
+expect,en
+verify,en
+build,en
+compile,en
+deploy,en
+release,en
+version,en
+update,en
+patch,en
+hotfix,en
+macos,en
+ios,en
+android,en
+windows,en
+linux,en
+unix,en
+system,en
+kernel,en
+swift,en
+python,en
+javascript,en
+java,en
+cpp,en
+rust,en
+go,en
+ruby,en
+php,en
+xcode,en
+vscode,en
+terminal,en
+console,en
+shell,en
+bash,en
+zsh,en
+command,en
+file,en
+folder,en
+directory,en
+path,en
+extension,en
+name,en
+size,en
+permission,en
+memory,en
+cpu,en
+disk,en
+network,en
+internet,en
+wifi,en
+bluetooth,en
+usb,en
+macbook,en
+imac,en
+macmini,en
+macpro,en
+iphone,en
+ipad,en
+ipod,en
+watch,en
+appstore,en
+icloud,en
+finder,en
+dock,en
+spotlight,en
+mission,en
+control,en
+siri,en
+airdrop,en
+handoff,en
+continuity,en
+sidecar,en
+universal,en
+clipboard,en
+keyboard,en
+mouse,en
+trackpad,en
+monitor,en
+display,en
+resolution,en
+color,en
+setting,en
+preference,en
+option,en
+choice,en
+selection,en
+default,en
+custom,en
+accessibility,en
+security,en
+privacy,en
+permission,en
+authorization,en
+login,en
+password,en
+username,en
+email,en
+address,en
+phone,en
+contact,en
+message,en
+hello world,en
+how are you,en
+good morning,en
+good evening,en
+thank you,en
+you are welcome,en
+excuse me,en
+sorry about that,en
+no problem,en
+that is fine,en
+see you later,en
+have a nice day,en
+take care,en
+good luck,en
+best wishes,en
+i am fine,en
+i am good,en
+what is up,en
+not much,en
+same here,en
+let me know,en
+keep in touch,en
+stay safe,en
+be careful,en
+all the best,en
+programming is fun,en
+code is poetry,en
+debug this,en
+fix the bug,en
+release it,en
+push to production,en
+merge the branch,en
+commit changes,en
+pull request,en
+code review,en
+system settings,en
+preferences,en
+access control,en
+user permissions,en
+admin rights,en
+keyboard layout,en
+input method,en
+text input,en
+spell checker,en
+autocorrect,en
+привет,ru
+мир,ru
+доброе,ru
+утро,ru
+вечер,ru
+день,ru
+ночь,ru
+неделя,ru
+месяц,ru
+год,ru
+время,ru
+дата,ru
+сейчас,ru
+сегодня,ru
+завтра,ru
+вчера,ru
+пожалуйста,ru
+спасибо,ru
+тебя,ru
+приветствую,ru
+извини,ru
+прости,ru
+да,ru
+нет,ru
+может,ru
+хорошо,ru
+окей,ru
+правильно,ru
+неправильно,ru
+да,ru
+нет,ru
+новый,ru
+старый,ru
+большой,ru
+маленький,ru
+длинный,ru
+короткий,ru
+высокий,ru
+низкий,ru
+быстрый,ru
+медленный,ru
+хороший,ru
+плохой,ru
+лучше,ru
+лучший,ru
+хуже,ru
+худший,ru
+больше,ru
+меньше,ru
+много,ru
+мало,ru
+один,ru
+два,ru
+три,ru
+четыре,ru
+пять,ru
+шесть,ru
+семь,ru
+восемь,ru
+девять,ru
+десять,ru
+первый,ru
+второй,ru
+третий,ru
+последний,ru
+следующий,ru
+предыдущий,ru
+до,ru
+после,ru
+во время,ru
+пока,ru
+с,ru
+без,ru
+от,ru
+к,ru
+в,ru
+на,ru
+по,ru
+для,ru
+из,ru
+о,ru
+и,ru
+или,ru
+но,ru
+если,ru
+тогда,ru
+иначе,ru
+когда,ru
+где,ru
+почему,ru
+как,ru
+что,ru
+который,ru
+кто,ru
+кого,ru
+чей,ru
+этот,ru
+тот,ru
+эти,ru
+те,ru
+компьютер,ru
+программа,ru
+код,ru
+разработчик,ru
+инженер,ru
+алгоритм,ru
+функция,ru
+переменная,ru
+константа,ru
+массив,ru
+строка,ru
+число,ru
+логический,ru
+класс,ru
+объект,ru
+метод,ru
+свойство,ru
+протокол,ru
+интерфейс,ru
+структура,ru
+перечисление,ru
+если,ru
+иначе,ru
+для,ru
+пока,ru
+переключатель,ru
+случай,ru
+прерывание,ru
+продолжение,ru
+вернуть,ru
+импорт,ru
+экспорт,ru
+модуль,ru
+пакет,ru
+библиотека,ru
+фреймворк,ru
+зависимость,ru
+гит,ru
+коммит,ru
+пуш,ru
+пулл,ru
+слияние,ru
+ветка,ru
+репозиторий,ru
+клон,ru
+отладка,ru
+ошибка,ru
+предупреждение,ru
+исключение,ru
+выбросить,ru
+поймать,ru
+попробовать,ru
+наконец,ru
+база данных,ru
+запрос,ru
+таблица,ru
+колонка,ru
+строка,ru
+индекс,ru
+ключ,ru
+значение,ru
+апи,ru
+ресурс,ru
+джейсон,ru
+эксэмэль,ru
+хттп,ru
+хттпс,ru
+урл,ru
+ури,ru
+эндпоинт,ru
+сервер,ru
+клиент,ru
+запрос,ru
+ответ,ru
+заголовок,ru
+тело,ru
+статус,ru
+код,ru
+тест,ru
+юнит,ru
+интеграционный,ru
+мок,ru
+заглушка,ru
+проверка,ru
+ожидание,ru
+верификация,ru
+сборка,ru
+компиляция,ru
+развертывание,ru
+релиз,ru
+версия,ru
+обновление,ru
+патч,ru
+хотфикс,ru
+макос,ru
+айос,ru
+андроид,ru
+виндоус,ru
+линукс,ru
+юникс,ru
+система,ru
+ядро,ru
+свифт,ru
+питон,ru
+джаваскрипт,ru
+джава,ru
+си плюс плюс,ru
+раст,ru
+го,ru
+руби,ru
+пхп,ru
+икскод,ru
+вскулкод,ru
+терминал,ru
+консоль,ru
+шелл,ru
+баш,ru
+зш,ru
+команда,ru
+файл,ru
+папка,ru
+директория,ru
+путь,ru
+расширение,ru
+имя,ru
+размер,ru
+права,ru
+память,ru
+процессор,ru
+диск,ru
+сеть,ru
+интернет,ru
+вайфай,ru
+блютус,ru
+юэсби,ru
+привет мир,ru
+как дела,ru
+доброе утро,ru
+добрый вечер,ru
+спасибо тебе,ru
+не за что,ru
+извини меня,ru
+прости за это,ru
+нет проблем,ru
+все в порядке,ru
+увидимся позже,ru
+хорошего дня,ru
+пока,ru
+удачи,ru
+наилучших пожеланий,ru
+я в порядке,ru
+я хорошо,ru
+что нового,ru
+ничего особенного,ru
+так же,ru
+дай знать,ru
+держись,ru
+будь осторожен,ru
+все самое лучшее,ru
+счастливо,ru
+программирование это весело,ru
+код это поэзия,ru
+отладь это,ru
+исправь ошибку,ru
+выпусти релиз,ru
+запуши в продакшн,ru
+смержи ветку,ru
+закоммити изменения,ru
+запуши запрос,ru
+ревью кода,ru
+системные настройки,ru
+предпочтения,ru
+контроль доступа,ru
+права пользователя,ru
+админ права,ru
+раскладка клавиатуры,ru
+метод ввода,ru
+ввод текста,ru
+проверка орфографии,ru
+автоисправление,ru
+ghbdtn,ru_wrong
+vbh,ru_wrong
+"lj,hjt",ru_wrong
+enhj,ru_wrong
+dtxth,ru_wrong
+ltym,ru_wrong
+yjxm,ru_wrong
+ytltkz,ru_wrong
+vtczw,ru_wrong
+ujl,ru_wrong
+dhtvz,ru_wrong
+lfnf,ru_wrong
+ctqxfc,ru_wrong
+ctujlyz,ru_wrong
+pfdnhf,ru_wrong
+dxthf,ru_wrong
+gj;fkeqcnf,ru_wrong
+"cgfcb,j",ru_wrong
+"nt,z",ru_wrong
+ghbdtncnde.,ru_wrong
+bpdbyb,ru_wrong
+ghjcnb,ru_wrong
+ytn,ru_wrong
+vj;tn,ru_wrong
+[jhjij,ru_wrong
+jrtq,ru_wrong
+ghfdbkmyj,ru_wrong
+ytghfdbkmyj,ru_wrong
+ytn,ru_wrong
+yjdsq,ru_wrong
+cnfhsq,ru_wrong
+",jkmijq",ru_wrong
+vfktymrbq,ru_wrong
+lkbyysq,ru_wrong
+rjhjnrbq,ru_wrong
+dscjrbq,ru_wrong
+ybprbq,ru_wrong
+",scnhsq",ru_wrong
+vtlktyysq,ru_wrong
+[jhjibq,ru_wrong
+gkj[jq,ru_wrong
+kexit,ru_wrong
+kexibq,ru_wrong
+[e;t,ru_wrong
+[elibq,ru_wrong
+",jkmit",ru_wrong
+vtymit,ru_wrong
+vyjuj,ru_wrong
+vfkj,ru_wrong
+jlby,ru_wrong
+ldf,ru_wrong
+nhb,ru_wrong
+xtnsht,ru_wrong
+gznm,ru_wrong
+itcnm,ru_wrong
+ctvm,ru_wrong
+djctvm,ru_wrong
+ltdznm,ru_wrong
+ltcznm,ru_wrong
+gthdsq,ru_wrong
+dnjhjq,ru_wrong
+nhtnbq,ru_wrong
+gjcktlybq,ru_wrong
+cktle.obq,ru_wrong
+ghtlsleobq,ru_wrong
+gjckt,ru_wrong
+dj dhtvz,ru_wrong
+gjrf,ru_wrong
+",tp",ru_wrong
+lkz,ru_wrong
+bkb,ru_wrong
+tckb,ru_wrong
+njulf,ru_wrong
+byfxt,ru_wrong
+rjulf,ru_wrong
+ult,ru_wrong
+gjxtve,ru_wrong
+rfr,ru_wrong
+xnj,ru_wrong
+rjnjhsq,ru_wrong
+rnj,ru_wrong
+rjuj,ru_wrong
+xtq,ru_wrong
+'njn,ru_wrong
+njn,ru_wrong
+'nb,ru_wrong
+rjvgm.nth,ru_wrong
+ghjuhfvvf,ru_wrong
+rjl,ru_wrong
+"hfphf,jnxbr",ru_wrong
+by;tyth,ru_wrong
+fkujhbnv,ru_wrong
+aeyrwbz,ru_wrong
+gthtvtyyfz,ru_wrong
+rjycnfynf,ru_wrong
+vfccbd,ru_wrong
+cnhjrf,ru_wrong
+xbckj,ru_wrong
+kjubxtcrbq,ru_wrong
+rkfcc,ru_wrong
+"j,]trn",ru_wrong
+vtnjl,ru_wrong
+cdjqcndj,ru_wrong
+ghjnjrjk,ru_wrong
+bynthatqc,ru_wrong
+cnhernehf,ru_wrong
+gthtxbcktybt,ru_wrong
+tckb,ru_wrong
+byfxt,ru_wrong
+lkz,ru_wrong
+gjrf,ru_wrong
+gthtrk.xfntkm,ru_wrong
+ckexfq,ru_wrong
+ghthsdfybt,ru_wrong
+ghjljk;tybt,ru_wrong
+dthyenm,ru_wrong
+bvgjhn,ru_wrong
+'rcgjhn,ru_wrong
+vjlekm,ru_wrong
+gfrtn,ru_wrong
+",b,kbjntrf",ru_wrong
+ahtqvdjhr,ru_wrong
+pfdbcbvjcnm,ru_wrong
+ubn,ru_wrong
+rjvvbn,ru_wrong
+gei,ru_wrong
+gekk,ru_wrong
+ckbzybt,ru_wrong
+dtnrf,ru_wrong
+htgjpbnjhbq,ru_wrong
+rkjy,ru_wrong
+jnkflrf,ru_wrong
+"jib,rf",ru_wrong
+ghtleght;ltybt,ru_wrong
+bcrk.xtybt,ru_wrong
+"ds,hjcbnm",ru_wrong
+gjqvfnm,ru_wrong
+"gjghj,jdfnm",ru_wrong
+yfrjytw,ru_wrong
+",fpf lfyys[",ru_wrong
+pfghjc,ru_wrong
+"nf,kbwf",ru_wrong
+rjkjyrf,ru_wrong
+cnhjrf,ru_wrong
+byltrc,ru_wrong
+rk.x,ru_wrong
+pyfxtybt,ru_wrong
+fgb,ru_wrong
+htcehc,ru_wrong
+l;tqcjy,ru_wrong
+'rc'v'km,ru_wrong
+[nng,ru_wrong
+[nngc,ru_wrong
+ehk,ru_wrong
+ehb,ru_wrong
+'ylgjbyn,ru_wrong
+cthdth,ru_wrong
+rkbtyn,ru_wrong
+pfghjc,ru_wrong
+jndtn,ru_wrong
+pfujkjdjr,ru_wrong
+ntkj,ru_wrong
+cnfnec,ru_wrong
+rjl,ru_wrong
+ntcn,ru_wrong
+.ybn,ru_wrong
+byntuhfwbjyysq,ru_wrong
+vjr,ru_wrong
+pfukeirf,ru_wrong
+ghjdthrf,ru_wrong
+j;blfybt,ru_wrong
+dthbabrfwbz,ru_wrong
+"c,jhrf",ru_wrong
+rjvgbkzwbz,ru_wrong
+hfpdthnsdfybt,ru_wrong
+htkbp,ru_wrong
+dthcbz,ru_wrong
+"j,yjdktybt",ru_wrong
+gfnx,ru_wrong
+[jnabrc,ru_wrong
+vfrjc,ru_wrong
+fqjc,ru_wrong
+fylhjbl,ru_wrong
+dbyljec,ru_wrong
+kbyerc,ru_wrong
+.ybrc,ru_wrong
+cbcntvf,ru_wrong
+zlhj,ru_wrong
+cdban,ru_wrong
+gbnjy,ru_wrong
+l;fdfcrhbgn,ru_wrong
+l;fdf,ru_wrong
+cb gk.c gk.c,ru_wrong
+hfcn,ru_wrong
+"he,b",ru_wrong
+g[g,ru_wrong
+brcrjl,ru_wrong
+dcrekrjl,ru_wrong
+nthvbyfk,ru_wrong
+rjycjkm,ru_wrong
+itkk,ru_wrong
+",fi",ru_wrong
+rjvfylf,ru_wrong
+afqk,ru_wrong
+gfgrf,ru_wrong
+lbhtrnjhbz,ru_wrong
+genm,ru_wrong
+hfcibhtybt,ru_wrong
+bvz,ru_wrong
+hfpvth,ru_wrong
+ghfdf,ru_wrong
+gfvznm,ru_wrong
+ghjwtccjh,ru_wrong
+lbcr,ru_wrong
+ctnm,ru_wrong
+bynthytn,ru_wrong
+dfqafq,ru_wrong
+",k.nec",ru_wrong
+".'c,b",ru_wrong
+ghbdtn vbh,ru_wrong
+rfr ltkf,ru_wrong
+"lj,hjt enhj",ru_wrong
+"lj,hsq dtxth",ru_wrong
+"cgfcb,j nt,t",ru_wrong
+yt pf xnj,ru_wrong
+bpdbyb vtyz,ru_wrong
+ghjcnb pf 'nj,ru_wrong
+"ytn ghj,ktv",ru_wrong
+dct d gjhzlrt,ru_wrong
+edblbvcz gjp;t,ru_wrong
+[jhjituj lyz,ru_wrong
+gjrf,ru_wrong
+elfxb,ru_wrong
+yfbkexib[ gj;tkfybq,ru_wrong
+good morning,en
+have a nice day,en
+see you later,en
+thank you very much,en
+excuse me please,en
+no problem at all,en
+that is correct,en
+i am fine,en
+what is new,en
+nothing special,en
+same as always,en
+all good here,en
+programming language,en
+software development,en
+machine learning,en
+artificial intelligence,en
+data science,en
+web development,en
+mobile app,en
+user interface,en
+user experience,en
+operating system,en
+computer science,en
+information technology,en
+network security,en
+cloud computing,en
+database management,en
+system architecture,en
+code review,en
+version control,en
+continuous integration,en
+testing framework,en
+debugging tool,en
+development environment,en
+production server,en
+access control,en
+user permissions,en
+admin rights,en
+system preferences,en
+доброе утро,ru
+хорошего дня,ru
+увидимся позже,ru
+большое спасибо,ru
+извини пожалуйста,ru
+нет проблем,ru
+это правильно,ru
+я в порядке,ru
+что нового,ru
+ничего особенного,ru
+как всегда,ru
+все хорошо,ru
+язык программирования,ru
+разработка программного обеспечения,ru
+машинное обучение,ru
+искусственный интеллект,ru
+наука о данных,ru
+веб разработка,ru
+мобильное приложение,ru
+пользовательский интерфейс,ru
+пользовательский опыт,ru
+операционная система,ru
+информатика,ru
+информационные технологии,ru
+безопасность сети,ru
+облачные вычисления,ru
+управление базами данных,ru
+системная архитектура,ru
+ревью кода,ru
+контроль версий,ru
+непрерывная интеграция,ru
+фреймворк тестирования,ru
+инструмент отладки,ru
+среда разработки,ru
+сервер для продакшена,ru
+"lj,hjt enhj",ru_wrong
+[jhjituj lyz,ru_wrong
+edblbvcz gjp;t,ru_wrong
+",jkmijt cgfcb,j",ru_wrong
+ghjuhfvvbhjdfybt 'nj bynthtcyj,ru_wrong
+rjl 'nj bcreccndj,ru_wrong
+"bcghfdm jib,re",ru_wrong
+pfgeib bpvtytybz,ru_wrong
+cltkfq rjvvbn,ru_wrong
+jnrhjq nthvbyfk,ru_wrong
+pfgecnb cthdth,ru_wrong
+cbcntvyst yfcnhjqrb,ru_wrong
+yfcnhjqrb rkfdbfnehs,ru_wrong
+ghjdthm jhajuhfab.,ru_wrong
+drk.xb fdnjrjhhtrwb.,ru_wrong
+rfr ltkf,ru_wrong
+xnj yjdjuj,ru_wrong
+dct [jhjij,ru_wrong
+"cgfcb,j nt,t",ru_wrong
+"ytn ghj,ktv",ru_wrong
+jnrhjq afqk,ru_wrong
+cj[hfyb bpvtytybz,ru_wrong
+pfrhjq jryj,ru_wrong
+gthtpfuhepb cbcntve,ru_wrong
+drk.xb vepsre,ru_wrong
+"jnrhjq ,hfepth",ru_wrong
+yfgbib rjl,ru_wrong
+pfgeib rjl,ru_wrong
+cltkfq ntcn,ru_wrong
+"bcghfdm ,fu",ru_wrong
+ghjdthm kjub,ru_wrong
+jxbcnb r'i,ru_wrong
+vfccbd pfdnhf,ru_wrong
+enhj dthyenm,ru_wrong
+kexit ybprbq,ru_wrong
+"lkbyysq nt,z",ru_wrong
+dthyenm ctujlyz,ru_wrong
+vtnjl dthyenm,ru_wrong
+xnj lfnf,ru_wrong
+njn dnjhjq,ru_wrong
+dtxth enhj,ru_wrong
+"lfnf ,jkmijq",ru_wrong
+rjhjnrbq byfxt,ru_wrong
+rjl enhj,ru_wrong
+rnj yjdsq,ru_wrong
+lkz xbckj,ru_wrong
+tckb xnj,ru_wrong
+gthdsq lkbyysq,ru_wrong
+dj dhtvz njn,ru_wrong
+kexit ghbdtn,ru_wrong
+vjlekm ytn,ru_wrong
+tckb dnjhjq,ru_wrong
+jlby kexit,ru_wrong
+"ghjcnb ,jkmijq",ru_wrong
+vjlekm jlby,ru_wrong
+ctujlyz lfnf,ru_wrong
+itcnm ctqxfc,ru_wrong
+nhb ldf,ru_wrong
+rjl [jhjibq,ru_wrong
+ltym ckexfq,ru_wrong
+gjrf rfr,ru_wrong
+dxthf itcnm,ru_wrong
+dhtvz rjnjhsq,ru_wrong
+[e;t aeyrwbz,ru_wrong
+fkujhbnv xtnsht,ru_wrong
+xtq ytn,ru_wrong
+byfxt vtczw,ru_wrong
+ltym rkfcc,ru_wrong
+rjhjnrbq gfrtn,ru_wrong
+[e;t dhtvz,ru_wrong
+rjhjnrbq ctqxfc,ru_wrong
+itcnm kexit,ru_wrong
+gjrf vfccbd,ru_wrong
+xtnsht ytn,ru_wrong
+gznm nhb,ru_wrong
+"cnfhsq j,]trn",ru_wrong
+gkj[jq tckb,ru_wrong
+cdjqcndj cnhjrf,ru_wrong
+ujl rjl,ru_wrong
+vfccbd vj;tn,ru_wrong
+rfr ckexfq,ru_wrong
+ybprbq ytn,ru_wrong
