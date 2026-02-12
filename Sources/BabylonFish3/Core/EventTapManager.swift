@@ -15,6 +15,9 @@ class EventTapManager {
     private var fallbackMonitor: Any?
     private var watchdogTimer: Timer?
     private var lastEventTime: TimeInterval = 0
+    private var tapReenableAttempts = 0
+    private let maxTapReenableAttempts = 3
+    private var lastTapReenableTime: TimeInterval = 0
     
     // Конфигурация
     private let eventMask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
@@ -76,6 +79,7 @@ class EventTapManager {
         eventTap = tap
         isRunning = true
         startTime = Date()
+        tapReenableAttempts = 0 // Сбрасываем счетчик при успешном старте
         
         logDebug("EventTapManager started successfully")
         
@@ -225,9 +229,28 @@ class EventTapManager {
         lastEventTime = Date().timeIntervalSince1970
         
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            logDebug("WARNING: Event tap disabled by system (type=\(type.rawValue)). Re-enabling...")
+            let now = Date().timeIntervalSince1970
+            let timeSinceLastReenable = now - lastTapReenableTime
+            
+            // Ограничиваем попытки повторного включения
+            if tapReenableAttempts >= maxTapReenableAttempts && timeSinceLastReenable < 5.0 {
+                logDebug("WARNING: Too many tap re-enable attempts (\(tapReenableAttempts)), waiting...")
+                return Unmanaged.passUnretained(event)
+            }
+            
+            logDebug("WARNING: Event tap disabled by system (type=\(type.rawValue)). Re-enabling... (attempt \(tapReenableAttempts + 1)/\(maxTapReenableAttempts))")
+            
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
+                tapReenableAttempts += 1
+                lastTapReenableTime = now
+                
+                // Если слишком много попыток, переключаемся в fallback mode
+                if tapReenableAttempts >= maxTapReenableAttempts {
+                    logDebug("Too many tap re-enable failures, switching to fallback mode")
+                    stop()
+                    startFallback()
+                }
             }
             return Unmanaged.passUnretained(event)
         }
@@ -325,12 +348,6 @@ class EventTapManager {
             // Обрабатываем событие
             let result = processor.processEvent(keyboardEvent)
             
-            // Если нужно заблокировать оригинальное событие
-            if result.shouldBlockOriginalEvent {
-                logDebug("Blocking original event: \(keyboardEvent)")
-                return true
-            }
-            
             // Если нужно отправить новые события
             if !result.eventsToSend.isEmpty {
                 var eventsToSend = result.eventsToSend
@@ -356,8 +373,16 @@ class EventTapManager {
                     eventsToSend.append(upEvent)
                 }
                 
+                logDebug("Calling sendEvents with \(eventsToSend.count) events")
                 sendEvents(eventsToSend)
+                logDebug("sendEvents completed, blocking original event")
                 return true // Блокируем оригинальное событие
+            }
+            
+            // Если нужно заблокировать оригинальное событие (без отправки новых событий)
+            if result.shouldBlockOriginalEvent {
+                logDebug("Blocking original event without sending new events: \(keyboardEvent)")
+                return true
             }
             
             return false
@@ -441,31 +466,48 @@ class EventTapManager {
     }
     
     private func sendEvents(_ events: [KeyboardEvent]) {
-        logDebug("Sending \(events.count) synthetic events...")
+        logDebug("=== SEND EVENTS START: \(events.count) events ===")
+        
+        if events.isEmpty {
+            logDebug("No events to send")
+            return
+        }
         
         for (index, event) in events.enumerated() {
             do {
+                logDebug("[\(index+1)/\(events.count)] Converting event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
                 let cgEvent = try convertKeyboardEventToCGEvent(event)
                 let sourcePid = cgEvent.getIntegerValueField(.eventSourceUserData)
-                logDebug("[\(index+1)/\(events.count)] Created synthetic event with source PID: \(sourcePid)")
+                logDebug("[\(index+1)/\(events.count)] Created CGEvent with source PID: \(sourcePid)")
                 
+                logDebug("[\(index+1)/\(events.count)] Posting to .cghidEventTap...")
                 cgEvent.post(tap: .cghidEventTap)
-                logDebug("[\(index+1)/\(events.count)] Sent synthetic event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
+                logDebug("[\(index+1)/\(events.count)] ✅ POSTED synthetic event")
+                
+                // Небольшая задержка между событиями для стабильности
+                if index < events.count - 1 {
+                    usleep(1000) // 1ms задержка
+                }
             } catch {
-                logDebug("Error sending event \(index+1): \(error)")
+                logDebug("❌ Error sending event \(index+1): \(error)")
             }
         }
         
-        logDebug("Finished sending \(events.count) events")
+        logDebug("=== SEND EVENTS COMPLETE: \(events.count) events sent ===")
     }
     
     private func convertKeyboardEventToCGEvent(_ event: KeyboardEvent) throws -> CGEvent {
+        logDebug("Converting KeyboardEvent to CGEvent: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
+        
         let keyDown = event.eventType != .keyUp
         guard let cgEvent = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(event.keyCode), keyDown: keyDown) else {
+            logDebug("❌ Failed to create CGEvent for keyCode: \(event.keyCode), keyDown: \(keyDown)")
             throw EventTapError.failedToCreateEvent
         }
         
+        logDebug("CGEvent created successfully")
         cgEvent.flags = event.flags
+        
         if event.timestamp > 0 {
             cgEvent.timestamp = event.timestamp
         }
@@ -477,11 +519,14 @@ class EventTapManager {
             var characters = [UniChar](repeating: 0, count: length)
             string.getCharacters(&characters, range: NSRange(location: 0, length: length))
             
+            logDebug("Setting unicode string: '\(event.unicodeString)' (length: \(length))")
             cgEvent.keyboardSetUnicodeString(stringLength: length, unicodeString: &characters)
         }
         
         // Помечаем как событие от BabylonFish
-        cgEvent.setIntegerValueField(.eventSourceUserData, value: Int64(getpid()))
+        let pid = Int64(getpid())
+        cgEvent.setIntegerValueField(.eventSourceUserData, value: pid)
+        logDebug("Set source PID: \(pid)")
         
         return cgEvent
     }

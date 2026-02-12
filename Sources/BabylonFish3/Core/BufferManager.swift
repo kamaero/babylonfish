@@ -6,7 +6,13 @@ class BufferManager {
     // Конфигурация
     private var maxBufferSize: Int = 1000
     private var maxWordLength: Int = 50
-    private var wordBoundaryCharacters: Set<Character> = [" ", "\t", "\n", "\r", ".", ",", "!", "?", ";", ":", "(", ")", "[", "]", "{", "}", "<", ">", "\"", "'"]
+    
+    // Разделители, которые всегда являются границами слов
+    private var strictWordBoundaries: Set<Character> = [" ", "\t", "\n", "\r"]
+    
+    // Знаки препинания, которые могут быть частью слова или границами
+    // (обрабатываются отдельно в shouldProcessWord)
+    private var punctuationCharacters: Set<Character> = [".", ",", "!", "?", ";", ":", "(", ")", "[", "]", "{", "}", "<", ">", "\"", "'"]
     
     // Состояние буфера
     private var characterBuffer: [Character] = []
@@ -52,21 +58,20 @@ class BufferManager {
     func shouldProcessWord() -> Bool {
         // Слово готово к обработке если:
         // 1. Буфер слова не пустой
-        // 2. Последний символ - граница слова
+        // 2. Мы только что завершили слово (wordBuffer пуст, но previousWords обновлен)
         // 3. Длина слова превышает лимит
         
-        guard !wordBuffer.isEmpty else {
-            return false
-        }
-        
-        // Проверяем границу слова
-        if let lastChar = characterBuffer.last,
-           wordBoundaryCharacters.contains(lastChar) {
+        // Проверяем, есть ли необработанные слова в previousWords
+        // (completeCurrentWord() добавляет слова в previousWords)
+        if !previousWords.isEmpty {
+            let lastProcessed = previousWords.last ?? ""
+            logDebug("BufferManager: Word ready for processing: '\(lastProcessed)'")
             return true
         }
         
-        // Проверяем максимальную длину слова
-        if wordBuffer.count >= maxWordLength {
+        // Проверяем максимальную длину текущего слова
+        if !wordBuffer.isEmpty && wordBuffer.count >= maxWordLength {
+            logDebug("BufferManager: Word length limit reached: '\(wordBuffer)'")
             return true
         }
         
@@ -75,11 +80,15 @@ class BufferManager {
     
     /// Получает текущее слово из буфера
     func getCurrentWord() -> String? {
-        guard !wordBuffer.isEmpty else {
-            return nil
+        // Возвращаем последнее завершенное слово из previousWords
+        // или текущее слово из wordBuffer если оно еще не завершено
+        if let lastWord = previousWords.last {
+            return lastWord
+        } else if !wordBuffer.isEmpty {
+            return wordBuffer
         }
         
-        return wordBuffer
+        return nil
     }
     
     /// Получает предыдущие слова
@@ -93,25 +102,24 @@ class BufferManager {
         
         let removedChar = characterBuffer.removeLast()
         
-        // Удаляем последний символ из wordBuffer (всегда, так как все символы теперь в wordBuffer)
-        if !wordBuffer.isEmpty {
-            wordBuffer.removeLast()
-        }
+        // Перестраиваем wordBuffer из оставшихся символов, исключая строгие границы
+        reconstructWordBuffer()
         
         logDebug("BufferManager: Removed last char '\(removedChar)'. Word buffer: '\(wordBuffer)'")
     }
     
     /// Очищает текущее слово из буфера
     func clearWord() {
-        if !wordBuffer.isEmpty {
-            totalWordsProcessed += 1
-            previousWords.append(wordBuffer)
-            bufferHistory.append(wordBuffer)
-            
-            logDebug("Word processed and cleared: '\(wordBuffer)'")
-            
-            wordBuffer = ""
+        // Удаляем последнее обработанное слово из previousWords и bufferHistory
+        if !previousWords.isEmpty {
+            previousWords.removeLast()
         }
+        if !bufferHistory.isEmpty {
+            bufferHistory.removeLast()
+        }
+        // Также очищаем wordBuffer на всякий случай
+        wordBuffer = ""
+        logDebug("BufferManager: Word cleared")
     }
     
     /// Очищает весь буфер
@@ -171,11 +179,20 @@ class BufferManager {
         // Добавляем символ в общий буфер
         characterBuffer.append(character)
         
-        // ВСЕ символы добавляем в wordBuffer, включая знаки препинания
-        // Это нужно для обработки слов типа "ghbdtn!" → "привет!"
-        wordBuffer.append(character)
-        
-        logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)'")
+        // Проверяем, является ли символ строгой границей (пробел, табуляция и т.д.)
+        if strictWordBoundaries.contains(character) {
+            // Если это строгая граница, завершаем текущее слово
+            if !wordBuffer.isEmpty {
+                completeCurrentWord()
+            }
+            // Не добавляем границу в wordBuffer
+            logDebug("BufferManager: Strict boundary '\(character)' detected, word completed")
+        } else {
+            // Добавляем ВСЕ символы в wordBuffer, включая знаки препинания
+            // Знаки препинания будут обработаны в shouldProcessWord()
+            wordBuffer.append(character)
+            logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)'")
+        }
     }
     
     private func completeCurrentWord() {
@@ -216,6 +233,17 @@ class BufferManager {
         }
         
         logDebug("Buffer trimmed to \(characterBuffer.count) characters")
+    }
+    
+    /// Перестраивает wordBuffer из characterBuffer, исключая строгие границы
+    private func reconstructWordBuffer() {
+        wordBuffer = ""
+        for char in characterBuffer {
+            if !strictWordBoundaries.contains(char) {
+                wordBuffer.append(char)
+            }
+        }
+        logDebug("BufferManager: Reconstructed wordBuffer: '\(wordBuffer)'")
     }
     
     // MARK: - Вспомогательные методы
@@ -262,20 +290,23 @@ class BufferManager {
             return nil
         }
         
+        // Комбинируем строгие границы и знаки препинания
+        let allBoundaries = strictWordBoundaries.union(punctuationCharacters)
+        
         // Находим начало слова
         var start = position
-        while start > 0 && !wordBoundaryCharacters.contains(characterBuffer[start - 1]) {
+        while start > 0 && !allBoundaries.contains(characterBuffer[start - 1]) {
             start -= 1
         }
         
         // Находим конец слова
         var end = position
-        while end < characterBuffer.count - 1 && !wordBoundaryCharacters.contains(characterBuffer[end]) {
+        while end < characterBuffer.count - 1 && !allBoundaries.contains(characterBuffer[end]) {
             end += 1
         }
         
         // Если end указывает на символ-разделитель, включаем его
-        if end < characterBuffer.count && wordBoundaryCharacters.contains(characterBuffer[end]) {
+        if end < characterBuffer.count && allBoundaries.contains(characterBuffer[end]) {
             end += 1
         }
         
@@ -289,7 +320,8 @@ class BufferManager {
         }
         
         let wordChars = Array(characterBuffer[boundaries.start..<boundaries.end])
-        return String(wordChars).trimmingCharacters(in: CharacterSet(charactersIn: String(wordBoundaryCharacters)))
+        let allBoundaries = strictWordBoundaries.union(punctuationCharacters)
+        return String(wordChars).trimmingCharacters(in: CharacterSet(charactersIn: String(allBoundaries)))
     }
     
     /// Заменяет слово в буфере

@@ -22,6 +22,9 @@ class EventProcessor {
     private var currentContext: ProcessingContext
     private var lastProcessedEvent: KeyboardEvent?
     private var pendingCorrections: [PendingCorrection] = []
+    private var isProcessing = false
+    private var recursionDepth = 0
+    private let maxRecursionDepth = 3
     
     // Double Shift State
     private var lastShiftTime: TimeInterval = 0
@@ -65,6 +68,32 @@ class EventProcessor {
     func processEvent(_ event: KeyboardEvent) -> EventProcessingResult {
         guard isEnabled else {
             return .default
+        }
+        
+        // Защита от рекурсии
+        if !isProcessing {
+            // Внешний вызов
+            isProcessing = true
+            recursionDepth = 0
+        } else {
+            // Рекурсивный вызов
+            recursionDepth += 1
+            if recursionDepth > maxRecursionDepth {
+                logDebug("⚠️ Recursion depth exceeded (\(recursionDepth)), skipping processing")
+                recursionDepth -= 1  // Откатываем увеличение перед возвратом
+                return .default
+            }
+            logDebug("⚠️ Recursive processing detected (depth: \(recursionDepth))")
+        }
+        
+        defer {
+            if recursionDepth > 0 {
+                // Вложенный вызов завершается
+                recursionDepth -= 1
+            } else {
+                // Внешний вызов завершается
+                isProcessing = false
+            }
         }
         
         totalEventsProcessed += 1
@@ -190,6 +219,40 @@ class EventProcessor {
         
         // Определяем тип приложения
         currentContext.applicationType = determineApplicationType()
+        
+        // Проверяем, не переключил ли пользователь раскладку вручную
+        checkForManualLayoutSwitch(event)
+    }
+    
+    private func checkForManualLayoutSwitch(_ event: KeyboardEvent) {
+        // Проверяем комбинации клавиш для ручного переключения раскладки
+        let flags = event.flags
+        
+        // Command+Space или Ctrl+Space - стандартные комбинации для переключения раскладки
+        if (flags.contains(.maskCommand) || flags.contains(.maskControl)) && event.keyCode == 49 { // Space
+            logDebug("Detected manual layout switch shortcut (Cmd/Ctrl+Space)")
+            currentContext.lastLayoutSwitchByApp = false
+            currentContext.expectedLayoutLanguage = nil
+            currentContext.postSwitchWordCount = 0
+            currentContext.postSwitchBuffer.removeAll()
+        }
+        
+        // Проверяем текущую раскладку и сравниваем с ожидаемой
+        if let currentLayout = layoutSwitcher.getCurrentLayout(),
+           let currentLanguage = layoutSwitcher.getLanguage(for: currentLayout),
+           let expectedLanguage = currentContext.expectedLayoutLanguage,
+           currentLanguage != expectedLanguage {
+            
+            // Если BabylonFish переключил раскладку, но текущая раскладка отличается от ожидаемой
+            // значит пользователь вручную переключил обратно
+            if currentContext.lastLayoutSwitchByApp {
+                logDebug("User manually switched layout from \(expectedLanguage) to \(currentLanguage)")
+                currentContext.lastLayoutSwitchByApp = false
+                currentContext.expectedLayoutLanguage = currentLanguage
+                currentContext.postSwitchWordCount = 0
+                currentContext.postSwitchBuffer.removeAll()
+            }
+        }
     }
     
     private func shouldIgnoreEvent(_ event: KeyboardEvent) -> Bool {
@@ -207,6 +270,11 @@ class EventProcessor {
         
         // 3. Проверяем специальные клавиши
         if isSpecialKey(event.keyCode) {
+            // Если нажата стрелка вправо - пользователь редактирует, сбрасываем буфер
+            if event.keyCode == 124 { // Right Arrow
+                logDebug("Right arrow pressed - user is editing, clearing buffer")
+                bufferManager.clearWord()
+            }
             return true
         }
         
@@ -302,7 +370,31 @@ class EventProcessor {
         }
         }
         
-        // 5. Очищаем буфер
+        // 5. Трекаем слова после переключения BabylonFish
+        if currentContext.lastLayoutSwitchByApp, let detectedLang = selectedLanguage {
+            currentContext.postSwitchWordCount += 1
+            currentContext.postSwitchBuffer.append(word)
+            
+            // Если пользователь печатает на ожидаемом языке после переключения
+            if let expectedLang = currentContext.expectedLayoutLanguage {
+                if detectedLang == expectedLang {
+                    logDebug("Post-switch word \(currentContext.postSwitchWordCount): '\(word)' in expected language \(detectedLang)")
+                } else {
+                    logDebug("Post-switch word \(currentContext.postSwitchWordCount): '\(word)' in unexpected language \(detectedLang) (expected \(expectedLang))")
+                    
+                    // Если пользователь печатает на другом языке несколько слов подряд,
+                    // возможно, он вручную переключил раскладку
+                    if currentContext.postSwitchWordCount >= 2 {
+                        logDebug("Multiple words in unexpected language - user may have manually switched layout")
+                        currentContext.lastLayoutSwitchByApp = false // Reset BabylonFish switch tracking
+                    }
+                }
+            } else {
+                logDebug("Post-switch word \(currentContext.postSwitchWordCount): '\(word)' in language \(detectedLang) (no expected language set)")
+            }
+        }
+        
+        // 6. Очищаем буфер
         bufferManager.clearWord()
         
         // Возвращаем результат с обнаруженным языком, но без переключения
@@ -315,10 +407,8 @@ class EventProcessor {
     }
     
     private func shouldSwitchLayout(for word: String, detectedLanguage: Language) -> Bool {
-        // 1. Проверяем минимальную длину
-        guard word.count >= config.minWordLengthForSwitch else {
-            return false
-        }
+        // 1. Проверяем минимальную длину слова
+        guard word.count >= config.minWordLengthForSwitch else { return false }
         
         // 2. Проверяем исключения
         if config.wordExceptions.contains(word.lowercased()) {
@@ -331,34 +421,186 @@ class EventProcessor {
         }
         
         // 4. Определяем язык текущей раскладки
-        let currentLayoutLanguage = layoutSwitcher.getLanguageForLayout(currentLayout)
+        guard let currentLayoutLanguage = layoutSwitcher.getLanguage(for: currentLayout) else {
+            return false
+        }
         
         // 5. Сравниваем языки
-        return currentLayoutLanguage != detectedLanguage
+        if currentLayoutLanguage == detectedLanguage {
+            return false
+        }
+        
+        // 6. Проверяем, не переключили ли мы уже раскладку для этого слова
+        if currentContext.lastLayoutSwitchTime != nil {
+            let timeSinceLastSwitch = Date().timeIntervalSince(currentContext.lastLayoutSwitchTime!)
+            
+            // Если BabylonFish переключил раскладку недавно, пользователь должен быть на новой раскладке
+            if currentContext.lastLayoutSwitchByApp && timeSinceLastSwitch < 5.0 {
+                logDebug("BabylonFish switched layout \(String(format: "%.1f", timeSinceLastSwitch))s ago, user should be on \(currentContext.expectedLayoutLanguage?.rawValue ?? "unknown") layout")
+                
+                // Если пользователь продолжает печатать на старой раскладке, это нормально
+                // Не пытаемся снова переключить
+                if let expectedLang = currentContext.expectedLayoutLanguage, detectedLanguage == expectedLang {
+                    logDebug("User typing \(detectedLanguage) on expected \(expectedLang) layout - assuming correct behavior")
+                    return false
+                }
+            }
+            
+            // Общий таймаут между переключениями
+            if timeSinceLastSwitch < 2.0 {
+                logDebug("Recently switched layout (\(String(format: "%.1f", timeSinceLastSwitch))s ago), not switching again")
+                return false
+            }
+        }
+        
+        // 7. Проверяем уверенность для раннего срабатывания
+        let confidence = getDetectionConfidence(for: word, language: detectedLanguage)
+        
+        // Если уверенность 100% и слово начинается с подозрительной комбинации
+        if confidence >= 1.0 && isSuspiciousStart(word: word, language: detectedLanguage) {
+            logDebug("Early detection: 100% confidence for suspicious start '\(word)'")
+            return true
+        }
+        
+        // Если слово закончено (есть разделитель) и уверенность достаточная
+        if isWordComplete(word) && confidence >= 0.8 {
+            logDebug("Complete word detection: confidence \(confidence) for '\(word)'")
+            return true
+        }
+        
+        // Если слово длинное (>5 символов) и уверенность высокая
+        if word.count >= 5 && confidence >= 0.9 {
+            logDebug("Long word detection: confidence \(confidence) for '\(word)'")
+            return true
+        }
+        
+        return false
     }
     
-    /// Разделяет слово и знаки препинания в конце
-    private func separateWordAndPunctuation(_ text: String) -> (word: String, punctuation: String) {
-        let punctuationChars = CharacterSet.punctuationCharacters.union(CharacterSet.symbols)
+    private func getDetectionConfidence(for word: String, language: Language) -> Double {
+        // Проверяем биграммы/триграммы для раннего определения
+        let cleanWord = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if cleanWord.count >= 2 {
+            let bigram = String(cleanWord.prefix(2)).lowercased()
+            if language == .russian && isRussianBigram(bigram) {
+                return 1.0
+            }
+            if language == .english && isEnglishBigram(bigram) {
+                return 1.0
+            }
+        }
+        
+        if cleanWord.count >= 3 {
+            let trigram = String(cleanWord.prefix(3)).lowercased()
+            if language == .russian && isRussianTrigram(trigram) {
+                return 1.0
+            }
+            if language == .english && isEnglishTrigram(trigram) {
+                return 1.0
+            }
+        }
+        
+        // Используем нейросеть для оценки уверенности
+        let result = neuralLanguageClassifier.classifyLanguage(
+            cleanWord,
+            context: ClassificationContext(
+                applicationType: currentContext.applicationType,
+                previousLanguage: currentContext.lastDetectedLanguage
+            )
+        )
+        
+        if result.language == language {
+            return result.confidence
+        }
+        
+        return 0.0
+    }
+    
+    private func isSuspiciousStart(word: String, language: Language) -> Bool {
+        let cleanWord = word.lowercased()
+        
+        if language == .russian {
+            // Комбинации, которые не встречаются в английском
+            let suspiciousStarts = ["gh", "ghb", "ghbd", "rj", "rfr", "plh", "plhf", "ntcn", "yf"]
+            return suspiciousStarts.contains { cleanWord.hasPrefix($0) }
+        } else if language == .english {
+            // Комбинации, которые не встречаются в русском
+            let suspiciousStarts = ["руд", "рудд", "щт", "щты", "йфя", "йфяч"]
+            return suspiciousStarts.contains { cleanWord.hasPrefix($0) }
+        }
+        
+        return false
+    }
+    
+    private func isWordComplete(_ word: String) -> Bool {
+        // Слово закончено если есть пробел, пунктуация или нажат Enter
+        let separators = CharacterSet(charactersIn: " .,!?;:\"\n\t")
+        return word.unicodeScalars.contains { separators.contains($0) }
+    }
+    
+    private func isRussianBigram(_ bigram: String) -> Bool {
+        // Биграммы, которые явно указывают на русский язык
+        let russianBigrams = ["gh", "rj", "pl", "nt", "yf", "kb", "uj", "gb", "db", "el"]
+        return russianBigrams.contains(bigram)
+    }
+    
+    private func isEnglishBigram(_ bigram: String) -> Bool {
+        // Биграммы, которые явно указывают на английский язык
+        let englishBigrams = ["th", "he", "in", "er", "an", "re", "nd", "at", "on", "nt"]
+        return englishBigrams.contains(bigram)
+    }
+    
+    private func isRussianTrigram(_ trigram: String) -> Bool {
+        // Триграммы, которые явно указывают на русский язык
+        let russianTrigrams = ["ghb", "rfr", "plh", "ntc", "yfl", "kbr", "ujd", "gbt", "dbt", "elt"]
+        return russianTrigrams.contains(trigram)
+    }
+    
+    private func isEnglishTrigram(_ trigram: String) -> Bool {
+        // Триграммы, которые явно указывают на английский язык
+        let englishTrigrams = ["the", "and", "ing", "her", "hat", "his", "ere", "for", "ent", "ion"]
+        return englishTrigrams.contains(trigram)
+    }
+    
+    /// Разделяет слово и знаки препинания (начало и конец)
+    private func separateWordAndPunctuation(_ text: String) -> (word: String, leadingPunctuation: String, trailingPunctuation: String) {
+        let punctuationChars = CharacterSet.punctuationCharacters
+            .union(CharacterSet.symbols)
+            .union(CharacterSet(charactersIn: "«»\"'`"))
+        
         var word = text
-        var punctuation = ""
+        var leadingPunctuation = ""
+        var trailingPunctuation = ""
         
         logDebug("Separating '\(text)' - checking punctuation chars")
         
-        // Ищем знаки препинания в конце строки
-        while let lastChar = word.last {
-            let charStr = String(lastChar)
+        // 1. Ищем знаки препинания в начале
+        while let firstChar = word.first {
+            let charStr = String(firstChar)
             if charStr.rangeOfCharacter(from: punctuationChars) != nil {
-                punctuation = charStr + punctuation
-                word.removeLast()
-                logDebug("Found punctuation: '\(charStr)', remaining word: '\(word)'")
+                leadingPunctuation.append(charStr)
+                word.removeFirst()
+                logDebug("Found leading punctuation: '\(charStr)', remaining word: '\(word)'")
             } else {
                 break
             }
         }
         
-        logDebug("Separated result: word='\(word)', punctuation='\(punctuation)'")
-        return (word, punctuation)
+        // 2. Ищем знаки препинания в конце
+        while let lastChar = word.last {
+            let charStr = String(lastChar)
+            if charStr.rangeOfCharacter(from: punctuationChars) != nil {
+                trailingPunctuation = charStr + trailingPunctuation
+                word.removeLast()
+                logDebug("Found trailing punctuation: '\(charStr)', remaining word: '\(word)'")
+            } else {
+                break
+            }
+        }
+        
+        logDebug("Separated result: word='\(word)', leading='\(leadingPunctuation)', trailing='\(trailingPunctuation)'")
+        return (word, leadingPunctuation, trailingPunctuation)
     }
     
     /// Создает события клавиш для текста (без конвертации раскладки)
@@ -391,28 +633,49 @@ class EventProcessor {
         if switchSuccess {
             layoutSwitches += 1
             
-            // 3. Разделяем слово и знаки препинания
-            let (cleanWord, punctuation) = separateWordAndPunctuation(word)
-            logDebug("Separated: word='\(cleanWord)', punctuation='\(punctuation)'")
+            // 3. Обновляем контекст: BabylonFish переключил раскладку
+            currentContext.lastLayoutSwitchTime = Date()
+            currentContext.lastLayoutSwitchByApp = true
+            currentContext.expectedLayoutLanguage = targetLanguage
+            currentContext.postSwitchWordCount = 0
+            currentContext.postSwitchBuffer.removeAll()
+            logDebug("Context updated: BabylonFish switched to \(targetLanguage)")
             
-            // 4. Удаляем неправильное слово (backspace события)
+            // 4. Разделяем слово и знаки препинания
+            let (cleanWord, leadingPunctuation, trailingPunctuation) = separateWordAndPunctuation(word)
+            logDebug("Separated: word='\(cleanWord)', leading='\(leadingPunctuation)', trailing='\(trailingPunctuation)'")
+            
+            // 5. Удаляем неправильное слово (backspace события)
             let backspaceEvents = createBackspaceEvents(count: word.count)
             logDebug("Created \(backspaceEvents.count) backspace events for word length \(word.count)")
             
-            // 5. Печатаем исправленное слово
+            // 6. Печатаем исправленное слово
             let correctedWord = cleanWord // Будет конвертировано в getKeyEventsForWord
             let correctionEvents = layoutSwitcher.getKeyEventsForWord(correctedWord, inLanguage: targetLanguage)
             logDebug("Created \(correctionEvents.count) correction events")
             
-            // 6. Добавляем знаки препинания (если есть)
-            var allEvents = backspaceEvents + correctionEvents
-            if !punctuation.isEmpty {
-                logDebug("Adding punctuation: '\(punctuation)'")
-                let punctuationEvents = createKeyEventsForText(punctuation)
-                allEvents.append(contentsOf: punctuationEvents)
+            // 7. Добавляем знаки препинания (если есть) в правильном порядке
+            var allEvents: [KeyboardEvent] = []
+            
+            // Сначала leading punctuation (если есть)
+            if !leadingPunctuation.isEmpty {
+                logDebug("Adding leading punctuation: '\(leadingPunctuation)'")
+                let leadingEvents = createKeyEventsForText(leadingPunctuation)
+                allEvents.append(contentsOf: leadingEvents)
             }
             
-            // 7. Обучаем модель
+            // Затем исправленное слово
+            allEvents.append(contentsOf: backspaceEvents)
+            allEvents.append(contentsOf: correctionEvents)
+            
+            // Затем trailing punctuation (если есть)
+            if !trailingPunctuation.isEmpty {
+                logDebug("Adding trailing punctuation: '\(trailingPunctuation)'")
+                let trailingEvents = createKeyEventsForText(trailingPunctuation)
+                allEvents.append(contentsOf: trailingEvents)
+            }
+            
+            // 8. Обучаем модель
             let learningContext = LearningContext(
                 applicationBundleId: currentContext.bundleIdentifier,
                 applicationType: currentContext.applicationType,
@@ -427,7 +690,7 @@ class EventProcessor {
                 context: learningContext
             ))
             
-            // 8. Очищаем буфер
+            // 9. Очищаем буфер
             bufferManager.clearWord()
             
             logDebug("Layout switched successfully to \(targetLanguage), total events: \(allEvents.count)")
@@ -449,11 +712,11 @@ class EventProcessor {
         correctionsMade += 1
         
         // 1. Разделяем слово и знаки препинания
-        let (cleanWord, punctuation) = separateWordAndPunctuation(word)
-        let (correctedCleanWord, correctedPunctuation) = separateWordAndPunctuation(correctionResult.correctedText)
+        let (cleanWord, leadingPunctuation, trailingPunctuation) = separateWordAndPunctuation(word)
+        let (correctedCleanWord, correctedLeadingPunctuation, correctedTrailingPunctuation) = separateWordAndPunctuation(correctionResult.correctedText)
         
-        logDebug("Original: word='\(cleanWord)', punctuation='\(punctuation)'")
-        logDebug("Corrected: word='\(correctedCleanWord)', punctuation='\(correctedPunctuation)'")
+        logDebug("Original: word='\(cleanWord)', leading='\(leadingPunctuation)', trailing='\(trailingPunctuation)'")
+        logDebug("Corrected: word='\(correctedCleanWord)', leading='\(correctedLeadingPunctuation)', trailing='\(correctedTrailingPunctuation)'")
         
         // 2. Удаляем неправильное слово
         let backspaceEvents = createBackspaceEvents(count: word.count)
@@ -464,14 +727,29 @@ class EventProcessor {
         let correctionEvents = layoutSwitcher.getKeyEventsForWord(correctedCleanWord, inLanguage: language)
         logDebug("Created \(correctionEvents.count) correction events")
         
-        // 4. Добавляем знаки препинания (используем исправленные, если есть, иначе оригинальные)
-        let finalPunctuation = !correctedPunctuation.isEmpty ? correctedPunctuation : punctuation
-        var allEvents = backspaceEvents + correctionEvents
+        // 4. Добавляем знаки препинания в правильном порядке
+        // Используем исправленные знаки препинания, если есть, иначе оригинальные
+        let finalLeadingPunctuation = !correctedLeadingPunctuation.isEmpty ? correctedLeadingPunctuation : leadingPunctuation
+        let finalTrailingPunctuation = !correctedTrailingPunctuation.isEmpty ? correctedTrailingPunctuation : trailingPunctuation
         
-        if !finalPunctuation.isEmpty {
-            logDebug("Adding punctuation: '\(finalPunctuation)'")
-            let punctuationEvents = createKeyEventsForText(finalPunctuation)
-            allEvents.append(contentsOf: punctuationEvents)
+        var allEvents: [KeyboardEvent] = []
+        
+        // Сначала leading punctuation
+        if !finalLeadingPunctuation.isEmpty {
+            logDebug("Adding leading punctuation: '\(finalLeadingPunctuation)'")
+            let leadingEvents = createKeyEventsForText(finalLeadingPunctuation)
+            allEvents.append(contentsOf: leadingEvents)
+        }
+        
+        // Затем исправленное слово
+        allEvents.append(contentsOf: backspaceEvents)
+        allEvents.append(contentsOf: correctionEvents)
+        
+        // Затем trailing punctuation
+        if !finalTrailingPunctuation.isEmpty {
+            logDebug("Adding trailing punctuation: '\(finalTrailingPunctuation)'")
+            let trailingEvents = createKeyEventsForText(finalTrailingPunctuation)
+            allEvents.append(contentsOf: trailingEvents)
         }
         
         // 5. Обучаем модель
@@ -580,18 +858,31 @@ class EventProcessor {
         } else {
             // Для слова из буфера: стираем и печатаем заново
             // Разделяем слово и знаки препинания
-            let (cleanText, punctuation) = separateWordAndPunctuation(text)
-            logDebug("Double Shift: text='\(cleanText)', punctuation='\(punctuation)'")
+            let (cleanText, leadingPunctuation, trailingPunctuation) = separateWordAndPunctuation(text)
+            logDebug("Double Shift: text='\(cleanText)', leading='\(leadingPunctuation)', trailing='\(trailingPunctuation)'")
             
             let backspaceEvents = createBackspaceEvents(count: text.count)
             let typeEvents = layoutSwitcher.getKeyEventsForWord(cleanText, inLanguage: targetLanguage)
             
-            // Добавляем знаки препинания
-            var allEvents = backspaceEvents + typeEvents
-            if !punctuation.isEmpty {
-                logDebug("Adding punctuation for Double Shift: '\(punctuation)'")
-                let punctuationEvents = createKeyEventsForText(punctuation)
-                allEvents.append(contentsOf: punctuationEvents)
+            // Добавляем знаки препинания в правильном порядке
+            var allEvents: [KeyboardEvent] = []
+            
+            // Сначала leading punctuation
+            if !leadingPunctuation.isEmpty {
+                logDebug("Adding leading punctuation for Double Shift: '\(leadingPunctuation)'")
+                let leadingEvents = createKeyEventsForText(leadingPunctuation)
+                allEvents.append(contentsOf: leadingEvents)
+            }
+            
+            // Затем исправленное слово
+            allEvents.append(contentsOf: backspaceEvents)
+            allEvents.append(contentsOf: typeEvents)
+            
+            // Затем trailing punctuation
+            if !trailingPunctuation.isEmpty {
+                logDebug("Adding trailing punctuation for Double Shift: '\(trailingPunctuation)'")
+                let trailingEvents = createKeyEventsForText(trailingPunctuation)
+                allEvents.append(contentsOf: trailingEvents)
             }
             
             bufferManager.clearWord()
@@ -735,12 +1026,12 @@ struct ProcessingConfig {
     let confidenceThreshold: Double
     
     static let `default` = ProcessingConfig(
-        enableTypoCorrection: true,
-        enableAutoComplete: true,
-        enableDoubleShift: true,
-        minWordLengthForSwitch: 3,
-        wordExceptions: ["a", "i", "to", "in", "on", "at"],
-        confidenceThreshold: 0.7
+        enableTypoCorrection: false, // Отключаем для тестирования
+        enableAutoComplete: false,   // Отключаем для тестирования
+        enableDoubleShift: false,    // Отключаем для тестирования
+        minWordLengthForSwitch: 4,   // Увеличиваем для уменьшения false positives
+        wordExceptions: ["a", "i", "to", "in", "on", "at", "the", "and", "but", "or"],
+        confidenceThreshold: 0.8     // Повышаем порог уверенности
     )
     
     var description: String {
@@ -767,15 +1058,26 @@ struct ProcessingContext {
     var lastEventTime: Date = Date()
     var lastKeyCode: Int = 0
     var isSecureField: Bool = false
+    var lastLayoutSwitchTime: Date?
+    var lastLayoutSwitchByApp: Bool = false // true if BabylonFish switched, false if user switched
+    var postSwitchBuffer: [String] = [] // Words typed after BabylonFish switched layout
+    var postSwitchWordCount: Int = 0 // Number of words typed after switch
+    var expectedLayoutLanguage: Language? // What language we expect user to type in after switch
     
     var description: String {
+        let timeSinceSwitch = lastLayoutSwitchTime.map { "\(Date().timeIntervalSince($0))s ago" } ?? "never"
+        let switchBy = lastLayoutSwitchByApp ? "BabylonFish" : "user"
+        let expectedLang = expectedLayoutLanguage?.rawValue ?? "none"
         return """
         ProcessingContext(
           app: \(processName ?? "unknown"),
           bundleId: \(bundleIdentifier ?? "unknown"),
           type: \(applicationType),
           lastLanguage: \(String(describing: lastDetectedLanguage)),
-          lastEvent: \(lastEventTime.timeIntervalSinceNow * -1)s ago
+          lastEvent: \(lastEventTime.timeIntervalSinceNow * -1)s ago,
+          lastSwitch: \(timeSinceSwitch) by \(switchBy),
+          postSwitchWords: \(postSwitchWordCount),
+          expectedLayout: \(expectedLang)
         )
         """
     }

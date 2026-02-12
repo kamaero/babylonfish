@@ -46,6 +46,11 @@ class LayoutSwitcher {
         return currentLayout
     }
     
+    /// Получает язык для раскладки
+    func getLanguage(for layout: KeyboardLayout) -> Language? {
+        return layout.supportedLanguages.first
+    }
+    
     /// Получает все доступные раскладки
     func getAvailableLayouts() -> [KeyboardLayout] {
         return availableLayouts

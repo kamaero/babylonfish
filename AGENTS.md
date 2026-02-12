@@ -226,3 +226,118 @@ tail -f ~/babylonfish_debug.log
 tccutil reset Accessibility com.babylonfish.app
 > ~/babylonfish_debug.log
 ```
+
+## Recent Development Progress
+
+### Current Version: 3.0.40
+**Date**: 12.02.2026  
+**Status**: Stable build with post-switch context tracking
+
+### Problem Solved: Post-Correction Gibberish Issue
+**Scenario**: User types "ghbdtn!" → BabylonFish correctly converts to "привет!" and switches to Russian layout → User continues typing Russian words on physical English layout → BabylonFish incorrectly tries to convert them back, creating gibberish like "rjycthdfwbz" instead of "конвертация"
+
+**Root Cause**: After auto-switching layout, BabylonFish didn't track that it was the one who switched, and didn't maintain context about expected user behavior.
+
+### Solution Implemented
+
+#### 1. Enhanced Context Tracking (`EventProcessor.swift`)
+```swift
+struct ProcessingContext {
+    // ... existing fields ...
+    var lastLayoutSwitchByApp: Bool = false  // true if BabylonFish switched
+    var expectedLayoutLanguage: Language?    // What language we expect after switch
+    var postSwitchWordCount: Int = 0         // Words typed after BabylonFish switch
+    var postSwitchBuffer: [String] = []      // Buffer for post-switch words
+}
+```
+
+#### 2. Smart Post-Switch Logic
+- After BabylonFish switches layout, assumes user will type on new layout for 5 seconds
+- If user types language different from expected, assumes it's correct behavior
+- Prevents unnecessary re-switching that caused gibberish
+
+#### 3. Manual Switch Detection
+- Detects Cmd+Space / Ctrl+Space shortcuts
+- Monitors layout changes: if user manually switches, resets BabylonFish tracking
+- Prevents BabylonFish from fighting user's manual choices
+
+#### 4. Stability Fixes
+- **Recursion protection**: Added `maxRecursionDepth = 3` to prevent infinite loops
+- **Tap re-enable limits**: Limited attempts to re-enable disabled event taps (max 3 attempts)
+- **Fallback mode**: Automatic switch to fallback if tap fails repeatedly
+
+### Current Issues & Next Steps
+
+#### ✅ Working:
+- Language detection (bi/trigrams + neural network)
+- Basic layout switching ("ghbdtn" → "привет")
+- Post-switch context tracking
+- Manual switch detection
+- System stability (no hangs)
+
+#### ✅ Fixed:
+1. **Word conversion with punctuation**: Enhanced `separateWordAndPunctuation()` to handle all cases
+   - Problem: "ghbdtn!" → should delete "ghbdtn!" and type "привет!" (with exclamation)
+   - Solution: Now correctly preserves leading and trailing punctuation
+   - Handles: quotes, brackets, multiple punctuation marks, etc.
+
+#### ✅ Fixed:
+1. **Space handling**: Improved word boundary detection in BufferManager
+   - Problem: Multi-word sentences didn't process correctly
+   - Solution: Strict boundaries (space, tab, newline) trigger word completion
+   - Punctuation stays with word (e.g., 'ghbdtn!' keeps '!')
+   - Multiple words processed sequentially
+
+2. **Complete conversion flow**: 
+   - Detect wrong-language word ✓
+   - Delete it completely (including punctuation) ✓  
+   - Type corrected version (with original punctuation) ✓
+   - Switch layout if needed ✓
+
+### Testing Commands Added
+```bash
+# Test post-switch logic
+swift test_post_switch.swift
+
+# Test stability fixes  
+swift test_stability.swift
+
+# Test complete scenario
+swift test_scenario_final.swift
+```
+
+### Key Code Locations
+- `Sources/BabylonFish3/Core/EventProcessor.swift:886-910` - Enhanced ProcessingContext
+- `Sources/BabylonFish3/Core/EventProcessor.swift:408-418` - Post-switch logic in shouldSwitchLayout
+- `Sources/BabylonFish3/Core/EventProcessor.swift:195-225` - Manual switch detection
+- `Sources/BabylonFish3/Core/EventTapManager.swift:227-248` - Tap re-enable limits
+
+### Remaining Tasks
+1. **Test edge cases**: mixed punctuation, numbers, special characters
+2. **Enable advanced features** (typo correction, auto-complete) once core is stable
+3. **Performance optimization** for long texts
+4. **UI improvements**: Visual indicators for layout switching
+
+### Recently Fixed
+1. **Punctuation handling**: Enhanced `separateWordAndPunctuation()` function
+   - Now handles leading and trailing punctuation separately
+   - Preserves punctuation order and position
+   - Works with quotes, brackets, multiple punctuation marks
+   - Test with: `swift test_full_flow.swift`
+
+2. **Word boundary detection**: Improved BufferManager logic
+   - Strict boundaries (space, tab, newline) trigger word completion
+   - Punctuation stays with word (e.g., 'ghbdtn!' keeps '!')
+   - Multiple words processed sequentially
+   - Test with: `swift test_buffer_fixed.swift`
+
+3. **System stability**: Added recursion protection and tap re-enable limits
+   - Prevents infinite loops when event tap is disabled
+   - Maximum 3 re-enable attempts with 5-second cooldown
+   - Automatic fallback mode after failures
+   - Test with: `swift test_stability.swift`
+
+### Build Status
+- **Current**: Stable (3.0.40) - no system hangs
+- **Configuration**: Minimal (advanced features disabled for testing)
+- **Permissions**: Works in fallback mode without Accessibility

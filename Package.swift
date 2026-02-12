@@ -10,9 +10,6 @@ let package = Package(
     ],
     products: [
         .executable(
-            name: "BabylonFish2",
-            targets: ["BabylonFish2"]),
-        .executable(
             name: "BabylonFish3",
             targets: ["BabylonFish3"]),
     ],
@@ -20,15 +17,6 @@ let package = Package(
         // Dependencies go here
     ],
     targets: [
-        .executableTarget(
-            name: "BabylonFish2",
-            dependencies: [],
-            path: "Sources/BabylonFish2",
-            linkerSettings: [
-                .unsafeFlags(["-framework", "Carbon"], .when(platforms: [.macOS])),
-                .unsafeFlags(["-framework", "Cocoa"], .when(platforms: [.macOS]))
-            ]
-        ),
         .executableTarget(
             name: "BabylonFish3",
             dependencies: [],
