@@ -232,9 +232,6 @@ class EventTapManager {
             return Unmanaged.passUnretained(event)
         }
         
-        let unicodePreview = event.getUnicodeString() ?? ""
-        logDebug("Event received: type=\(type.rawValue) unicode='\(unicodePreview)' flags=\(event.flags.rawValue)")
-        
         // Пропускаем системные события
         if shouldIgnoreEvent(type: type, event: event) {
             return Unmanaged.passUnretained(event)
@@ -252,12 +249,17 @@ class EventTapManager {
     }
     
     private func startFallback() {
+        logDebug("Starting fallback event monitor...")
         fallbackMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] ev in
             guard let self else { return }
             guard let processor = self.eventProcessor else { return }
+            
             let keyCode = Int(ev.keyCode)
             let chars = ev.characters ?? ""
             let flags = ev.modifierFlags
+            
+            logDebug("Fallback monitor captured event: type=\(ev.type.rawValue), keyCode=\(keyCode), chars='\(chars)', flags=\(flags.rawValue)")
+            
             let kbEvent = KeyboardEvent(
                 keyCode: keyCode,
                 unicodeString: chars,
@@ -265,23 +267,36 @@ class EventTapManager {
                 timestamp: CGEventTimestamp(Date().timeIntervalSince1970 * 1_000_000),
                 eventType: ev.type == .flagsChanged ? .flagsChanged : .keyDown
             )
+            
             let result = processor.processEvent(kbEvent)
+            logDebug("Fallback processing result: eventsToSend=\(result.eventsToSend.count), shouldSwitch=\(result.shouldSwitchLayout), language=\(String(describing: result.detectedLanguage))")
+            
             if !result.eventsToSend.isEmpty {
                 self.sendEvents(result.eventsToSend)
             }
+        }
+        
+        if fallbackMonitor != nil {
+            logDebug("Fallback monitor started successfully")
+        } else {
+            logDebug("ERROR: Failed to create fallback monitor")
         }
     }
     
     private func shouldIgnoreEvent(type: CGEventType, event: CGEvent) -> Bool {
         // Игнорируем события от самого BabylonFish
         let sourcePid = event.getIntegerValueField(.eventSourceUserData)
-        if sourcePid == Int64(getpid()) {
+        let currentPid = Int64(getpid())
+        
+        if sourcePid == currentPid {
+            logDebug("Ignoring event from BabylonFish (PID: \(sourcePid) == \(currentPid))")
             return true
         }
         
-        // Игнорируем системные модификаторы
+        logDebug("Event source PID: \(sourcePid), BabylonFish PID: \(currentPid), type: \(type.rawValue)")
+        
         let flags = event.flags
-        if flags.contains(.maskNonCoalesced) {
+        if flags.contains(.maskCommand) || flags.contains(.maskControl) {
             return true
         }
         
@@ -322,14 +337,23 @@ class EventTapManager {
                 // Если исходное событие содержит разделитель (unicodeString не пуст), добавим его в конец,
                 // чтобы сохранить границу слова (например, пробел или пунктуацию)
                 if let unicode = event.getUnicodeString(), !unicode.isEmpty {
-                    let boundaryEvent = KeyboardEvent(
-                        keyCode: Int(event.getIntegerValueField(.keyboardEventKeycode)),
+                    let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+                    let downEvent = KeyboardEvent(
+                        keyCode: keyCode,
                         unicodeString: unicode,
                         flags: event.flags,
-                        timestamp: event.timestamp,
+                        timestamp: 0,
                         eventType: .keyDown
                     )
-                    eventsToSend.append(boundaryEvent)
+                    let upEvent = KeyboardEvent(
+                        keyCode: keyCode,
+                        unicodeString: "",
+                        flags: event.flags,
+                        timestamp: 0,
+                        eventType: .keyUp
+                    )
+                    eventsToSend.append(downEvent)
+                    eventsToSend.append(upEvent)
                 }
                 
                 sendEvents(eventsToSend)
@@ -417,27 +441,37 @@ class EventTapManager {
     }
     
     private func sendEvents(_ events: [KeyboardEvent]) {
-        for event in events {
+        logDebug("Sending \(events.count) synthetic events...")
+        
+        for (index, event) in events.enumerated() {
             do {
                 let cgEvent = try convertKeyboardEventToCGEvent(event)
+                let sourcePid = cgEvent.getIntegerValueField(.eventSourceUserData)
+                logDebug("[\(index+1)/\(events.count)] Created synthetic event with source PID: \(sourcePid)")
+                
                 cgEvent.post(tap: .cghidEventTap)
-                logDebug("Sent synthetic event: \(event)")
+                logDebug("[\(index+1)/\(events.count)] Sent synthetic event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
             } catch {
-                logDebug("Error sending event: \(error)")
+                logDebug("Error sending event \(index+1): \(error)")
             }
         }
+        
+        logDebug("Finished sending \(events.count) events")
     }
     
     private func convertKeyboardEventToCGEvent(_ event: KeyboardEvent) throws -> CGEvent {
-        guard let cgEvent = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(event.keyCode), keyDown: true) else {
+        let keyDown = event.eventType != .keyUp
+        guard let cgEvent = CGEvent(keyboardEventSource: nil, virtualKey: CGKeyCode(event.keyCode), keyDown: keyDown) else {
             throw EventTapError.failedToCreateEvent
         }
         
         cgEvent.flags = event.flags
-        cgEvent.timestamp = event.timestamp
+        if event.timestamp > 0 {
+            cgEvent.timestamp = event.timestamp
+        }
         
         // Устанавливаем unicode string если есть
-        if !event.unicodeString.isEmpty {
+        if keyDown && !event.unicodeString.isEmpty {
             let string = event.unicodeString as NSString
             let length = string.length
             var characters = [UniChar](repeating: 0, count: length)
@@ -503,8 +537,15 @@ enum KeyboardEventType {
 struct EventProcessingResult {
     let shouldBlockOriginalEvent: Bool
     let eventsToSend: [KeyboardEvent]
+    let detectedLanguage: Language?
+    let shouldSwitchLayout: Bool
     
-    static let `default` = EventProcessingResult(shouldBlockOriginalEvent: false, eventsToSend: [])
+    static let `default` = EventProcessingResult(
+        shouldBlockOriginalEvent: false, 
+        eventsToSend: [],
+        detectedLanguage: nil,
+        shouldSwitchLayout: false
+    )
 }
 
 /// Ошибки EventTapManager

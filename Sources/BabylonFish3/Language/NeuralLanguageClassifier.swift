@@ -98,10 +98,12 @@ class NeuralLanguageClassifier {
     func classifyLanguage(_ text: String, context: ClassificationContext? = nil) -> NeuralClassificationResult {
         totalPredictions += 1
         
-        logDebug("NeuralLanguageClassifier.classifyLanguage called with text: '\(text)'")
+        logDebug("=== NeuralLanguageClassifier.classifyLanguage ===")
+        logDebug("Input text: '\(text)'")
+        logDebug("Context: \(context?.applicationType.rawValue ?? "nil")")
         
         guard isEnabled else {
-            logDebug("NeuralLanguageClassifier is disabled")
+            logDebug("Classifier is disabled")
             return NeuralClassificationResult(
                 language: nil,
                 confidence: 0,
@@ -113,7 +115,7 @@ class NeuralLanguageClassifier {
         // Проверяем кэш
         if let cached = getCachedPrediction(for: text) {
             cacheHits += 1
-            logDebug("Cache hit for text: '\(text)' → \(cached.0) (\(cached.1))")
+            logDebug("CACHE HIT: '\(text)' → \(cached.0) (confidence: \(cached.1))")
             return NeuralClassificationResult(
                 language: cached.0,
                 confidence: cached.1,
@@ -122,12 +124,14 @@ class NeuralLanguageClassifier {
             )
         }
         
+        logDebug("Cache miss for text: '\(text)'")
+        
         // Подготавливаем текст
         let preparedText = prepareText(text)
-        logDebug("Prepared text: '\(preparedText)'")
+        logDebug("Prepared text: '\(preparedText)' (original: '\(text)')")
         
         guard !preparedText.isEmpty else {
-            logDebug("Prepared text is empty")
+            logDebug("Prepared text is empty, returning insufficient input")
             return NeuralClassificationResult(
                 language: nil,
                 confidence: 0,
@@ -138,8 +142,10 @@ class NeuralLanguageClassifier {
         
         // Извлекаем фичи
         let features = extractFeatures(from: preparedText)
+        logDebug("Extracted features: \(features.description)")
         
         // Классифицируем с помощью Apple NLLanguageRecognizer
+        logDebug("Trying Apple NLLanguageRecognizer...")
         let appleResult = classifyWithAppleRecognizer(preparedText)
         logDebug("Apple NLP result: language=\(String(describing: appleResult.language)), confidence=\(appleResult.confidence), threshold=\(confidenceThreshold)")
         
@@ -149,36 +155,52 @@ class NeuralLanguageClassifier {
                 cachePrediction(text, language: language, confidence: appleResult.confidence)
                 successfulPredictions += 1
                 
-                logDebug("Using Apple NLP result: \(language) with confidence \(appleResult.confidence)")
+                logDebug("✅ USING APPLE NLP: \(language) with confidence \(appleResult.confidence)")
+                logDebug("=== End classification ===")
                 return NeuralClassificationResult(
                     language: language,
                     confidence: appleResult.confidence,
                     method: .appleNLP,
                     features: features
                 )
+            } else {
+                logDebug("Apple NLP language not convertible: \(String(describing: appleResult.language))")
             }
+        } else {
+            logDebug("Apple NLP confidence too low: \(appleResult.confidence) < \(confidenceThreshold)")
         }
         
         // Пытаемся использовать кастомную модель (если есть)
+        logDebug("Trying custom CoreML model...")
         if let customResult = classifyWithCustomModel(preparedText, features: features) {
             cachePrediction(text, language: customResult.language, confidence: customResult.confidence)
             successfulPredictions += 1
             
+            logDebug("✅ USING CUSTOM MODEL: \(customResult.language) with confidence \(customResult.confidence)")
+            logDebug("=== End classification ===")
             return NeuralClassificationResult(
                 language: customResult.language,
                 confidence: customResult.confidence,
                 method: .customModel,
                 features: features
             )
+        } else {
+            logDebug("Custom model not available or failed")
         }
         
         // Используем эвристики как fallback
+        logDebug("Trying heuristics fallback...")
         let heuristicResult = classifyWithHeuristics(preparedText, features: features, context: context)
+        logDebug("Heuristics result: language=\(String(describing: heuristicResult.language)), confidence=\(heuristicResult.confidence)")
         
         if let language = heuristicResult.language, heuristicResult.confidence > 0.3 {
             cachePrediction(text, language: language, confidence: heuristicResult.confidence)
+            logDebug("✅ USING HEURISTICS: \(language) with confidence \(heuristicResult.confidence)")
+        } else {
+            logDebug("Heuristics confidence too low or no language detected")
         }
         
+        logDebug("=== End classification ===")
         return NeuralClassificationResult(
             language: heuristicResult.language,
             confidence: heuristicResult.confidence,
@@ -441,35 +463,65 @@ class NeuralLanguageClassifier {
     }
     
     private func classifyWithHeuristics(_ text: String, features: TextFeatures, context: ClassificationContext?) -> (language: Language?, confidence: Double) {
+        logDebug("--- Heuristics analysis for '\(text)' ---")
+        logDebug("Features: cyrillicRatio=\(String(format: "%.3f", features.cyrillicRatio)), latinRatio=\(String(format: "%.3f", features.latinRatio)), length=\(features.length)")
+        
         var scores: [Language: Double] = [:]
         
         // 1. Фичи текста
         if features.cyrillicRatio > 0.7 {
             scores[.russian, default: 0] += 0.8
+            logDebug("High cyrillic ratio → Russian +0.8")
         } else if features.latinRatio > 0.7 {
             scores[.english, default: 0] += 0.8
+            logDebug("High latin ratio → English +0.8")
         } else if features.cyrillicRatio > 0.3 {
             scores[.russian, default: 0] += 0.4
+            logDebug("Moderate cyrillic ratio → Russian +0.4")
         } else if features.latinRatio > 0.3 {
             scores[.english, default: 0] += 0.4
+            logDebug("Moderate latin ratio → English +0.4")
         }
         
         // 2. Контекст (если есть)
         if let context = context {
+            logDebug("Context: appType=\(context.applicationType.rawValue), previousLang=\(context.previousLanguage?.rawValue ?? "nil")")
+            
             if context.applicationType == .ide || context.applicationType == .terminal {
                 scores[.english, default: 0] += 0.3
+                logDebug("IDE/Terminal context → English +0.3")
             }
             
             if let previousLanguage = context.previousLanguage {
                 scores[previousLanguage, default: 0] += 0.2
+                logDebug("Previous language \(previousLanguage) → +0.2")
             }
         }
         
         // 3. Длина текста (короткие тексты менее надежны)
         if features.length < 3 {
+            logDebug("Short text (length=\(features.length)) → reducing confidence by 50%")
             // Уменьшаем уверенность для коротких текстов
             for (language, _) in scores {
                 scores[language] = scores[language]! * 0.5
+            }
+        }
+        
+        // 4. Проверяем "невозможные паттерны" для "неправильной раскладки"
+        logDebug("Checking impossible patterns...")
+        for pattern in LanguageConstants.impossibleRuInEnKeys where pattern.count >= 3 {
+            if text.contains(pattern) {
+                scores[.russian, default: 0] += 0.7
+                logDebug("Found impossible Russian pattern '\(pattern)' in text → Russian +0.7")
+                break
+            }
+        }
+        
+        for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 4 {
+            if text.contains(pattern) {
+                scores[.english, default: 0] += 0.7
+                logDebug("Found impossible English pattern '\(pattern)' in text → English +0.7")
+                break
             }
         }
         
@@ -477,10 +529,15 @@ class NeuralLanguageClassifier {
         let bestLanguage = scores.max(by: { $0.value < $1.value })
         
         guard let language = bestLanguage?.key, let score = bestLanguage?.value else {
+            logDebug("No language detected, scores: \(scores)")
             return (nil, 0)
         }
         
         let confidence = min(max(score, 0.1), 0.9)
+        logDebug("Heuristics result: \(language) with confidence \(String(format: "%.3f", confidence))")
+        logDebug("All scores: \(scores)")
+        logDebug("--- End heuristics ---")
+        
         return (language, confidence)
     }
     

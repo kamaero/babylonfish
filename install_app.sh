@@ -21,23 +21,25 @@ ALT_INSTALL_DIR=""
 
 pkill -9 "$APP_NAME" 2>/dev/null || true
 
-# Reset permissions (Accessibility/Input Monitoring)
-# This forces the system to forget the old binary signature and allows re-requesting permissions.
-echo "Resetting TCC permissions for $APP_NAME..."
-tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
-tccutil reset All "$BUNDLE_ID" 2>/dev/null || true
+if [ -z "$SKIP_TCC_RESET" ]; then
+  echo "Resetting TCC permissions for $APP_NAME..."
+  tccutil reset Accessibility "$BUNDLE_ID" 2>/dev/null || true
+  tccutil reset All "$BUNDLE_ID" 2>/dev/null || true
+fi
 
 # Remove old versions to prevent confusion
-echo "Removing old versions from $INSTALL_DIR and $ALT_INSTALL_DIR..."
-for dir in "$INSTALL_DIR" "$ALT_INSTALL_DIR"; do
-  [ -d "$dir" ] || continue
-  find "$dir" -maxdepth 1 -name "BabylonFish*.app" -print0 | while IFS= read -r -d '' app; do
-    if [ -x "$LSREGISTER" ]; then
-      "$LSREGISTER" -u "$app" >/dev/null 2>&1 || true
-    fi
-    rm -rf "$app"
+if [ -z "$SKIP_TCC_RESET" ]; then
+  echo "Removing old versions from $INSTALL_DIR and $ALT_INSTALL_DIR..."
+  for dir in "$INSTALL_DIR" "$ALT_INSTALL_DIR"; do
+    [ -d "$dir" ] || continue
+    find "$dir" -maxdepth 1 -name "BabylonFish*.app" -print0 | while IFS= read -r -d '' app; do
+      if [ -x "$LSREGISTER" ]; then
+        "$LSREGISTER" -u "$app" >/dev/null 2>&1 || true
+      fi
+      rm -rf "$app"
+    done
   done
-done
+fi
 
 rm -rf ".build"
 rm -rf "$HOME/Library/Caches/com.babylonfish.app" "$HOME/Library/Saved Application State/com.babylonfish.app.savedState"

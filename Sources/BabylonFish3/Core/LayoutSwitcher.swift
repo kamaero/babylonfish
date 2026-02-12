@@ -136,34 +136,60 @@ class LayoutSwitcher {
     
     /// Генерирует события клавиш для слова в указанном языке
     func getKeyEventsForWord(_ word: String, inLanguage language: Language) -> [KeyboardEvent] {
-        var events: [KeyboardEvent] = []
-        let timestamp = CGEventTimestamp(Date().timeIntervalSince1970 * 1_000_000)
+        logDebug("getKeyEventsForWord called: word='\(word)', language=\(language)")
         
-        // Для каждого символа в слове создаем событие keyDown
-        for (index, char) in word.enumerated() {
-            // Получаем keyCode для символа в текущей раскладке
-            // В реальной реализации нужно использовать mapping таблицы
+        // 1. Конвертируем слово в символы целевого языка
+        let convertedWord = convertWordToLanguage(word, targetLanguage: language)
+        logDebug("Converted word: '\(word)' → '\(convertedWord)' for language \(language)")
+        
+        var events: [KeyboardEvent] = []
+        
+        // 2. Для каждого символа в конвертированном слове создаем события
+        for char in convertedWord {
+            // Получаем keyCode для символа в целевой раскладке
             let keyCode = getKeyCodeForCharacter(char, inLanguage: language)
             
-            let event = KeyboardEvent(
+            logDebug("Character '\(char)' → keyCode: \(keyCode) for language \(language)")
+            
+            let downEvent = KeyboardEvent(
                 keyCode: keyCode,
                 unicodeString: String(char),
                 flags: [],
-                timestamp: timestamp + UInt64(index * 1000), // Небольшой offset для каждого символа
+                timestamp: 0,
                 eventType: .keyDown
             )
+            let upEvent = KeyboardEvent(
+                keyCode: keyCode,
+                unicodeString: "",
+                flags: [],
+                timestamp: 0,
+                eventType: .keyUp
+            )
             
-            events.append(event)
+            events.append(downEvent)
+            events.append(upEvent)
         }
         
-        logDebug("Generated \(events.count) key events for word '\(word)' in \(language)")
+        logDebug("Generated \(events.count) key events for word '\(word)' (converted to '\(convertedWord)') in \(language)")
         return events
     }
     
-    /// Включает/выключает переключение раскладок
-    func setEnabled(_ enabled: Bool) {
-        isEnabled = enabled
-        logDebug("LayoutSwitcher enabled: \(enabled)")
+    /// Конвертирует слово в символы целевого языка
+    private func convertWordToLanguage(_ word: String, targetLanguage: Language) -> String {
+        logDebug("Converting word '\(word)' to language \(targetLanguage)")
+        
+        // Используем KeyMapper для конвертации
+        let converted = KeyMapper.shared.convertString(word)
+        logDebug("KeyMapper conversion: '\(word)' → '\(converted)'")
+        
+        // Если конвертация не сработала (например, для цифр или символов),
+        // возвращаем оригинальное слово
+        if converted == word {
+            logDebug("No conversion needed or conversion failed, returning original word")
+            return word
+        }
+        
+        return converted
     }
     
     /// Получает статистику
@@ -238,7 +264,7 @@ class LayoutSwitcher {
         
         // Если не определили язык, добавляем оба как fallback
         if supportedLanguages.isEmpty {
-            supportedLanguages = [.english, .russian]
+            supportedLanguages = [.english]
         }
         
         return KeyboardLayout(

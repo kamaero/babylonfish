@@ -383,7 +383,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func hasAccessibility(prompt: Bool = false) -> Bool {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: prompt] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
+        let result = AXIsProcessTrustedWithOptions(options)
+        logDebug("Accessibility check: prompt=\(prompt), result=\(result), bundleID=\(Bundle.main.bundleIdentifier ?? "unknown"), path=\(Bundle.main.bundlePath)")
+        return result
     }
     
     private func hasInputMonitoring() -> Bool {
@@ -392,10 +394,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1 = kIOHIDAccessTypeMonitor (Granted)
         // 2 = kIOHIDAccessTypeModify (Granted + Modify, rare but valid)
         let status = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-        logDebug("IOHIDCheckAccess raw status: \(status.rawValue), expected Granted: \(kIOHIDAccessTypeGranted.rawValue)")
         
-        // Explicitly check for raw values 1 and 2, or the constant
-        return status == kIOHIDAccessTypeGranted || status.rawValue == 1 || status.rawValue == 2
+        // Log detailed status
+        let statusDescription: String
+        switch status.rawValue {
+        case 0: statusDescription = "Denied (kIOHIDAccessTypeNone)"
+        case 1: statusDescription = "Granted (kIOHIDAccessTypeMonitor)"
+        case 2: statusDescription = "Granted+Modify (kIOHIDAccessTypeModify)"
+        default: statusDescription = "Unknown (\(status.rawValue))"
+        }
+        
+        logDebug("Input Monitoring check: status=\(statusDescription), bundleID=\(Bundle.main.bundleIdentifier ?? "unknown"), path=\(Bundle.main.bundlePath)")
+        
+        // Check all possible granted states
+        let isGranted = status == kIOHIDAccessTypeGranted || status.rawValue == 1 || status.rawValue == 2
+        logDebug("Input Monitoring granted: \(isGranted)")
+        
+        return isGranted
     }
     
     func checkAccessibilityPermissions() {

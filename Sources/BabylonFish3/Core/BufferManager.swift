@@ -93,16 +93,12 @@ class BufferManager {
         
         let removedChar = characterBuffer.removeLast()
         
-        // Если символ был частью текущего слова, удаляем и оттуда
-        if !wordBoundaryCharacters.contains(removedChar) {
-            if !wordBuffer.isEmpty {
-                wordBuffer.removeLast()
-            }
+        // Удаляем последний символ из wordBuffer (всегда, так как все символы теперь в wordBuffer)
+        if !wordBuffer.isEmpty {
+            wordBuffer.removeLast()
         }
-        // Если удалили разделитель, мы не восстанавливаем предыдущее слово в wordBuffer
-        // Это упрощение, но для коррекции опечаток обычно достаточно
         
-        logDebug("BufferManager: Removed last char. Word buffer: '\(wordBuffer)'")
+        logDebug("BufferManager: Removed last char '\(removedChar)'. Word buffer: '\(wordBuffer)'")
     }
     
     /// Очищает текущее слово из буфера
@@ -175,17 +171,11 @@ class BufferManager {
         // Добавляем символ в общий буфер
         characterBuffer.append(character)
         
-        // Проверяем, является ли символ границей слова
-        if wordBoundaryCharacters.contains(character) {
-            // ВАЖНО: Мы НЕ вызываем completeCurrentWord() здесь автоматически.
-            // Мы оставляем слово в wordBuffer, чтобы EventProcessor мог его прочитать и обработать.
-            // EventProcessor сам вызовет clearWord() после обработки.
-            
-            // Просто добавляем разделитель в историю, если нужно (но это уже делает clearWord)
-        } else {
-            // Добавляем символ в буфер слова
-            wordBuffer.append(character)
-        }
+        // ВСЕ символы добавляем в wordBuffer, включая знаки препинания
+        // Это нужно для обработки слов типа "ghbdtn!" → "привет!"
+        wordBuffer.append(character)
+        
+        logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)'")
     }
     
     private func completeCurrentWord() {

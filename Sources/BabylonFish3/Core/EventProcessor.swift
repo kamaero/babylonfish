@@ -70,42 +70,69 @@ class EventProcessor {
         totalEventsProcessed += 1
         lastProcessedEvent = event
         
+        logDebug("Processing event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', flags=\(event.flags.rawValue)")
+        
         // 1. Обновляем контекст
         updateContext(with: event)
         
         // Handle Backspace explicitly
         if event.keyCode == 51 { // Backspace
             bufferManager.removeLast()
-            // Backspace is also a special key, so we can return here or let it continue if we want to process it further (unlikely)
-            return .default
+            logDebug("Backspace pressed, buffer updated")
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
         }
         
         // Handle Arrows explicitly (clear buffer to avoid confusion)
         if event.keyCode >= 123 && event.keyCode <= 126 {
              bufferManager.clear()
-             return .default
+             logDebug("Arrow key pressed, buffer cleared")
+             return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+             )
         }
         
         // 2. Проверяем, нужно ли игнорировать событие
         if shouldIgnoreEvent(event) {
             logDebug("Ignoring event: \(event)")
-            return .default
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
         }
         
         // 3. Добавляем символ в буфер
         bufferManager.addCharacter(event.unicodeString)
+        logDebug("Added to buffer: '\(event.unicodeString)', current word: '\(bufferManager.getCurrentWord() ?? "")'")
         
         // 4. Проверяем границы слов
         if bufferManager.shouldProcessWord() {
+            logDebug("Word ready for processing")
             return processWord()
         }
         
         // 5. Проверяем специальные комбинации клавиш
         if let specialResult = handleSpecialKeyCombinations(event) {
+            logDebug("Special key combination handled")
             return specialResult
         }
         
-        return .default
+        logDebug("Event processed, no action needed")
+        return EventProcessingResult(
+            shouldBlockOriginalEvent: false,
+            eventsToSend: [],
+            detectedLanguage: nil,
+            shouldSwitchLayout: false
+        )
     }
     
     /// Настраивает процессор
@@ -188,7 +215,12 @@ class EventProcessor {
     
     private func processWord() -> EventProcessingResult {
         guard let word = bufferManager.getCurrentWord() else {
-            return .default
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
         }
         
         logDebug("Processing word: '\(word)'")
@@ -210,7 +242,12 @@ class EventProcessor {
         
         if contextAnalysis.shouldIgnore {
             bufferManager.clearWord()
-            return .default
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
         }
         
         // 2. Детектируем язык
@@ -268,7 +305,13 @@ class EventProcessor {
         // 5. Очищаем буфер
         bufferManager.clearWord()
         
-        return .default
+        // Возвращаем результат с обнаруженным языком, но без переключения
+        return EventProcessingResult(
+            shouldBlockOriginalEvent: false,
+            eventsToSend: [],
+            detectedLanguage: selectedLanguage,
+            shouldSwitchLayout: false
+        )
     }
     
     private func shouldSwitchLayout(for word: String, detectedLanguage: Language) -> Bool {
@@ -294,6 +337,45 @@ class EventProcessor {
         return currentLayoutLanguage != detectedLanguage
     }
     
+    /// Разделяет слово и знаки препинания в конце
+    private func separateWordAndPunctuation(_ text: String) -> (word: String, punctuation: String) {
+        let punctuationChars = CharacterSet.punctuationCharacters.union(CharacterSet.symbols)
+        var word = text
+        var punctuation = ""
+        
+        logDebug("Separating '\(text)' - checking punctuation chars")
+        
+        // Ищем знаки препинания в конце строки
+        while let lastChar = word.last {
+            let charStr = String(lastChar)
+            if charStr.rangeOfCharacter(from: punctuationChars) != nil {
+                punctuation = charStr + punctuation
+                word.removeLast()
+                logDebug("Found punctuation: '\(charStr)', remaining word: '\(word)'")
+            } else {
+                break
+            }
+        }
+        
+        logDebug("Separated result: word='\(word)', punctuation='\(punctuation)'")
+        return (word, punctuation)
+    }
+    
+    /// Создает события клавиш для текста (без конвертации раскладки)
+    private func createKeyEventsForText(_ text: String) -> [KeyboardEvent] {
+        logDebug("Creating key events for text: '\(text)'")
+        
+        // Для знаков препинания используем текущий язык из контекста
+        let currentLanguage = currentContext.lastDetectedLanguage ?? .english
+        
+        // Используем LayoutSwitcher для создания событий
+        // Знаки препинания обычно одинаковы на обеих раскладках
+        let events = layoutSwitcher.getKeyEventsForWord(text, inLanguage: currentLanguage)
+        
+        logDebug("Created \(events.count) key events for text '\(text)' using language \(currentLanguage)")
+        return events
+    }
+    
     private func handleLayoutSwitch(word: String, targetLanguage: Language) -> EventProcessingResult {
         logDebug("Switching layout for word '\(word)' to \(targetLanguage)")
         
@@ -309,10 +391,28 @@ class EventProcessor {
         if switchSuccess {
             layoutSwitches += 1
             
-            // 3. Перепечатываем слово
-            let eventsToSend = layoutSwitcher.getKeyEventsForWord(word, inLanguage: targetLanguage)
+            // 3. Разделяем слово и знаки препинания
+            let (cleanWord, punctuation) = separateWordAndPunctuation(word)
+            logDebug("Separated: word='\(cleanWord)', punctuation='\(punctuation)'")
             
-            // 4. Обучаем модель
+            // 4. Удаляем неправильное слово (backspace события)
+            let backspaceEvents = createBackspaceEvents(count: word.count)
+            logDebug("Created \(backspaceEvents.count) backspace events for word length \(word.count)")
+            
+            // 5. Печатаем исправленное слово
+            let correctedWord = cleanWord // Будет конвертировано в getKeyEventsForWord
+            let correctionEvents = layoutSwitcher.getKeyEventsForWord(correctedWord, inLanguage: targetLanguage)
+            logDebug("Created \(correctionEvents.count) correction events")
+            
+            // 6. Добавляем знаки препинания (если есть)
+            var allEvents = backspaceEvents + correctionEvents
+            if !punctuation.isEmpty {
+                logDebug("Adding punctuation: '\(punctuation)'")
+                let punctuationEvents = createKeyEventsForText(punctuation)
+                allEvents.append(contentsOf: punctuationEvents)
+            }
+            
+            // 7. Обучаем модель
             let learningContext = LearningContext(
                 applicationBundleId: currentContext.bundleIdentifier,
                 applicationType: currentContext.applicationType,
@@ -327,13 +427,15 @@ class EventProcessor {
                 context: learningContext
             ))
             
-            // 5. Очищаем буфер
+            // 8. Очищаем буфер
             bufferManager.clearWord()
             
-            logDebug("Layout switched successfully to \(targetLanguage)")
+            logDebug("Layout switched successfully to \(targetLanguage), total events: \(allEvents.count)")
             return EventProcessingResult(
                 shouldBlockOriginalEvent: true,
-                eventsToSend: eventsToSend
+                eventsToSend: allEvents,
+                detectedLanguage: targetLanguage,
+                shouldSwitchLayout: true
             )
         }
         
@@ -346,39 +448,58 @@ class EventProcessor {
         
         correctionsMade += 1
         
-        // 1. Удаляем неправильное слово
+        // 1. Разделяем слово и знаки препинания
+        let (cleanWord, punctuation) = separateWordAndPunctuation(word)
+        let (correctedCleanWord, correctedPunctuation) = separateWordAndPunctuation(correctionResult.correctedText)
+        
+        logDebug("Original: word='\(cleanWord)', punctuation='\(punctuation)'")
+        logDebug("Corrected: word='\(correctedCleanWord)', punctuation='\(correctedPunctuation)'")
+        
+        // 2. Удаляем неправильное слово
         let backspaceEvents = createBackspaceEvents(count: word.count)
+        logDebug("Created \(backspaceEvents.count) backspace events")
         
-        // 2. Печатаем исправленное слово
-        let correctionEvents = layoutSwitcher.getKeyEventsForWord(
-            correctionResult.correctedText,
-            inLanguage: currentContext.lastDetectedLanguage ?? .english
-        )
+        // 3. Печатаем исправленное слово
+        let language = currentContext.lastDetectedLanguage ?? .english
+        let correctionEvents = layoutSwitcher.getKeyEventsForWord(correctedCleanWord, inLanguage: language)
+        logDebug("Created \(correctionEvents.count) correction events")
         
-        // 3. Обучаем модель
+        // 4. Добавляем знаки препинания (используем исправленные, если есть, иначе оригинальные)
+        let finalPunctuation = !correctedPunctuation.isEmpty ? correctedPunctuation : punctuation
+        var allEvents = backspaceEvents + correctionEvents
+        
+        if !finalPunctuation.isEmpty {
+            logDebug("Adding punctuation: '\(finalPunctuation)'")
+            let punctuationEvents = createKeyEventsForText(finalPunctuation)
+            allEvents.append(contentsOf: punctuationEvents)
+        }
+        
+        // 5. Обучаем модель
         let learningContext = LearningContext(
             applicationBundleId: currentContext.bundleIdentifier,
             applicationType: currentContext.applicationType,
             textContext: "\(word) → \(correctionResult.correctedText)"
         )
         
-            learningManager.learn(from: LearningEvent(
-                type: .correctionAcceptance,
-                language: currentContext.lastDetectedLanguage,
-                originalText: word,
-                correctedText: correctionResult.correctedText,
-                applicationBundleId: currentContext.bundleIdentifier,
-                applicationType: currentContext.applicationType,
-                context: learningContext
-            ))
+        learningManager.learn(from: LearningEvent(
+            type: .correctionAcceptance,
+            language: currentContext.lastDetectedLanguage,
+            originalText: word,
+            correctedText: correctionResult.correctedText,
+            applicationBundleId: currentContext.bundleIdentifier,
+            applicationType: currentContext.applicationType,
+            context: learningContext
+        ))
         
-        // 4. Очищаем буфер
+        // 6. Очищаем буфер
         bufferManager.clearWord()
         
-        logDebug("Typo corrected: \(word) → \(correctionResult.correctedText)")
+        logDebug("Typo corrected: \(word) → \(correctionResult.correctedText), total events: \(allEvents.count)")
         return EventProcessingResult(
             shouldBlockOriginalEvent: true,
-            eventsToSend: backspaceEvents + correctionEvents
+            eventsToSend: allEvents,
+            detectedLanguage: nil,
+            shouldSwitchLayout: false
         )
     }
     
@@ -452,18 +573,35 @@ class EventProcessor {
             let events = layoutSwitcher.getKeyEventsForWord(text, inLanguage: targetLanguage)
             return EventProcessingResult(
                 shouldBlockOriginalEvent: false, // Не блокируем Shift, чтобы не ломать системное поведение
-                eventsToSend: events
+                eventsToSend: events,
+                detectedLanguage: targetLanguage,
+                shouldSwitchLayout: true
             )
         } else {
             // Для слова из буфера: стираем и печатаем заново
+            // Разделяем слово и знаки препинания
+            let (cleanText, punctuation) = separateWordAndPunctuation(text)
+            logDebug("Double Shift: text='\(cleanText)', punctuation='\(punctuation)'")
+            
             let backspaceEvents = createBackspaceEvents(count: text.count)
-            let typeEvents = layoutSwitcher.getKeyEventsForWord(text, inLanguage: targetLanguage)
+            let typeEvents = layoutSwitcher.getKeyEventsForWord(cleanText, inLanguage: targetLanguage)
+            
+            // Добавляем знаки препинания
+            var allEvents = backspaceEvents + typeEvents
+            if !punctuation.isEmpty {
+                logDebug("Adding punctuation for Double Shift: '\(punctuation)'")
+                let punctuationEvents = createKeyEventsForText(punctuation)
+                allEvents.append(contentsOf: punctuationEvents)
+            }
             
             bufferManager.clearWord()
             
+            logDebug("Double Shift correction: '\(text)' → converted, total events: \(allEvents.count)")
             return EventProcessingResult(
                 shouldBlockOriginalEvent: false,
-                eventsToSend: backspaceEvents + typeEvents
+                eventsToSend: allEvents,
+                detectedLanguage: targetLanguage,
+                shouldSwitchLayout: true
             )
         }
     }
@@ -520,14 +658,22 @@ class EventProcessor {
         var events: [KeyboardEvent] = []
         
         for _ in 0..<count {
-            let backspaceEvent = KeyboardEvent(
+            let downEvent = KeyboardEvent(
                 keyCode: 51, // Backspace key code
                 unicodeString: "",
                 flags: [],
-                timestamp: CGEventTimestamp(Date().timeIntervalSince1970 * 1_000_000),
+                timestamp: 0,
                 eventType: .keyDown
             )
-            events.append(backspaceEvent)
+            let upEvent = KeyboardEvent(
+                keyCode: 51,
+                unicodeString: "",
+                flags: [],
+                timestamp: 0,
+                eventType: .keyUp
+            )
+            events.append(downEvent)
+            events.append(upEvent)
         }
         
         return events
