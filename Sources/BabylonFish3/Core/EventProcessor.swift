@@ -352,16 +352,46 @@ class EventProcessor {
         
         var selectedLanguage: Language?
         var selectedConfidence: Double = 0
+        var decisionMethod = "unknown"
         
+        // Улучшенная логика принятия решений с учетом границ предложений
         if contextAnalysis.isConfident, let ctxLang = contextAnalysis.suggestedLanguage {
-            selectedLanguage = ctxLang
-            selectedConfidence = contextAnalysis.confidence
-            logDebug("Language decision: using context (\(selectedLanguage!), \(String(format: "%.2f", selectedConfidence)))")
+            // Проверяем, согласуется ли контекстный язык с нейросетевым предсказанием
+            if let clsLang = languageResult.language, languageResult.confidence >= 0.8 {
+                // Нейросеть очень уверена - проверяем согласованность
+                if clsLang == ctxLang {
+                    // Согласованы - используем контекст
+                    selectedLanguage = ctxLang
+                    selectedConfidence = max(contextAnalysis.confidence, languageResult.confidence)
+                    decisionMethod = "context+classifier_agreement"
+                } else {
+                    // Не согласованы - приоритет нейросети при высокой уверенности
+                    if languageResult.confidence >= 0.9 {
+                        selectedLanguage = clsLang
+                        selectedConfidence = languageResult.confidence
+                        decisionMethod = "classifier_high_confidence_override"
+                        logDebug("Classifier override: high confidence (\(languageResult.confidence)) overrides context")
+                    } else {
+                        // Умеренная уверенность - используем контекст
+                        selectedLanguage = ctxLang
+                        selectedConfidence = contextAnalysis.confidence
+                        decisionMethod = "context_moderate_classifier"
+                    }
+                }
+            } else {
+                // Нейросеть не уверена или нет предсказания - используем контекст
+                selectedLanguage = ctxLang
+                selectedConfidence = contextAnalysis.confidence
+                decisionMethod = "context_only"
+            }
         } else if let clsLang = languageResult.language {
+            // Нет уверенного контекста - используем нейросеть
             selectedLanguage = clsLang
             selectedConfidence = languageResult.confidence
-            logDebug("Language decision: using classifier (\(selectedLanguage!), \(String(format: "%.2f", selectedConfidence)))")
+            decisionMethod = "classifier_only"
         }
+        
+        logDebug("Language decision: \(decisionMethod) (\(selectedLanguage?.rawValue ?? "none"), \(String(format: "%.2f", selectedConfidence)))")
         
         if let detectedLanguage = selectedLanguage {
             languageDetections += 1
@@ -637,7 +667,7 @@ class EventProcessor {
             "йфя",   // was
             "еуые",  // test
             "рщц",   // how
-            "яку",   // ??? (возможно you, но нщг тоже you)
+            "яку",   // you (альтернативная раскладка)
             "нщг",   // you
             "фку",   // are
             "ерш",   // the
@@ -669,19 +699,36 @@ class EventProcessor {
             }
         }
         
-        // 2. Для коротких слов (2-4 символа) используем NSSpellChecker
+        // 2. Для коротких слов (2-4 символа) используем улучшенную проверку с NSSpellChecker
         if lowercased.count >= 2 && lowercased.count <= 4 {
-            logDebug("Short word (\(lowercased.count) chars), checking with NSSpellChecker...")
+            logDebug("Short word (\(lowercased.count) chars), checking with enhanced NSSpellChecker logic...")
             
-            // Проверяем, является ли слово валидным английским словом
+            // Проверяем оба языка через NSSpellChecker
             let isEnglishWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "en")
-            logDebug("NSSpellChecker: '\(lowercased)' is valid English word: \(isEnglishWord)")
+            let isRussianWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "ru")
             
-            // Если слово валидно в английском, вероятно, это английское слово в русской раскладке
-            if isEnglishWord {
-                logDebug("✅ isEnglishWordInRussianLayout: Short word '\(lowercased)' is valid English word via NSSpellChecker")
+            logDebug("NSSpellChecker results:")
+            logDebug("  '\(lowercased)' is valid English word: \(isEnglishWord)")
+            logDebug("  '\(lowercased)' is valid Russian word: \(isRussianWord)")
+            
+            // Улучшенная логика: проверяем оба языка и сравниваем
+            // Если слово валидно только в английском, но не в русском → это английское слово в русской раскладке
+            if isEnglishWord && !isRussianWord {
+                logDebug("✅ isEnglishWordInRussianLayout: Short word '\(lowercased)' is ONLY valid in English via NSSpellChecker")
                 return true
             }
+            
+            // Если слово валидно в обоих языках → неоднозначный случай, нужна дополнительная проверка
+            if isEnglishWord && isRussianWord {
+                logDebug("⚠️  Ambiguous case: '\(lowercased)' is valid in both English and Russian")
+                // Проверяем, есть ли слово в списке известных английских слов в русской раскладке
+                // (например, "фку" = "are", "яку" = "you")
+                // Если нет, то скорее всего это русское слово
+                return false
+            }
+            
+            // Если слово не валидно ни в одном языке → не английское слово в русской раскладке
+            logDebug("❌ isEnglishWordInRussianLayout: Short word '\(lowercased)' is not valid in English or ambiguous")
         }
         
         // 3. Используем нейросеть для дополнительной проверки

@@ -5,7 +5,7 @@ import Cocoa
 class ContextAnalyzer {
     
     // Компоненты контекста
-    private let sentenceBuffer: SentenceBuffer
+    private let sentenceBuffer: EnhancedSentenceBuffer
     private let semanticAnalyzer: SemanticAnalyzer
     private let enhancedLanguageDetector: EnhancedLanguageDetector
     
@@ -28,7 +28,7 @@ class ContextAnalyzer {
     
     /// Инициализирует анализатор контекста
     init(
-        sentenceBuffer: SentenceBuffer = SentenceBuffer(),
+        sentenceBuffer: EnhancedSentenceBuffer = EnhancedSentenceBuffer(),
         semanticAnalyzer: SemanticAnalyzer = SemanticAnalyzer(),
         enhancedLanguageDetector: EnhancedLanguageDetector = EnhancedLanguageDetector()
     ) {
@@ -36,12 +36,12 @@ class ContextAnalyzer {
         self.semanticAnalyzer = semanticAnalyzer
         self.enhancedLanguageDetector = enhancedLanguageDetector
         
-        logDebug("ContextAnalyzer initialized")
+        logDebug("ContextAnalyzer initialized with EnhancedSentenceBuffer")
     }
     
     // MARK: - Public API
     
-    /// Анализирует контекст для текста
+    /// Анализирует контекст для текста с учетом границ предложений
     func analyzeContext(for text: String, externalContext: DetectionContext? = nil) -> ContextAnalysisResult {
         analysisCount += 1
         
@@ -69,16 +69,16 @@ class ContextAnalyzer {
         // Анализируем языковые тренды
         updateLanguageTrends()
         
-        // Детектируем язык с учетом контекста
-        let languageResult = detectLanguageWithContext(
+        // Детектируем язык с учетом контекста и границ предложений
+        let languageResult = detectLanguageWithEnhancedContext(
             text: text,
             semanticResult: semanticResult,
             externalContext: externalContext
         )
         
-        // Обновляем буфер если язык определен
+        // Обновляем буфер с учетом границ предложений
         if let language = languageResult.suggestedLanguage {
-            sentenceBuffer.addWord(text, language: language)
+            sentenceBuffer.addText(text, language: language)
             contextUsedCount += 1
         }
         
@@ -93,16 +93,16 @@ class ContextAnalyzer {
         )
     }
     
-    /// Обновляет контекст после ввода
+    /// Обновляет контекст после ввода с учетом границ предложений
     func updateContext(text: String, language: Language) {
-        sentenceBuffer.addWord(text, language: language)
+        sentenceBuffer.addText(text, language: language)
         
         // Обновляем семантический анализ
         let semanticResult = semanticAnalyzer.analyzeText(text)
         updateTopicIfNeeded(semanticResult.topic)
         currentTone = semanticResult.tone
         
-        logDebug("Context updated: '\(text)' → \(language), topic: \(currentTopic)")
+        logDebug("Enhanced context updated: '\(text)' → \(language), topic: \(currentTopic)")
     }
     
     /// Получает текущий контекст
@@ -456,6 +456,71 @@ class ContextAnalyzer {
         } else {
             languageTrend = .neutral
         }
+    }
+    
+    /// Детектирует язык с учетом улучшенного контекста (границы предложений)
+    private func detectLanguageWithEnhancedContext(
+        text: String,
+        semanticResult: SemanticAnalysis,
+        externalContext: DetectionContext?
+    ) -> LanguageDetectionWithContext {
+        
+        // Проверяем, нужно ли игнорировать
+        if shouldIgnoreInput(text: text, externalContext: externalContext) {
+            return LanguageDetectionWithContext(
+                suggestedLanguage: nil,
+                confidence: 0,
+                shouldIgnore: true,
+                method: .contextIgnored
+            )
+        }
+        
+        // Получаем улучшенный контекст предложений
+        let sentenceContext = sentenceBuffer.getContext(forWord: text)
+        
+        // Проверяем, следует ли использовать контекст
+        if sentenceContext.shouldUseContext {
+            logDebug("Enhanced context available: \(sentenceContext.completeSentences) complete sentences, dominant: \(sentenceContext.dominantLanguage?.rawValue ?? "none") (\(String(format: "%.0f", sentenceContext.dominantLanguageConfidence * 100))%)")
+            
+            // Если есть сильный контекст, используем его
+            if let dominantLanguage = sentenceContext.dominantLanguage,
+               sentenceContext.dominantLanguageConfidence >= 0.8 {
+                
+                // Но проверяем согласованность языка текущего слова с контекстом
+                switch sentenceContext.languageConsistency {
+                case .consistent:
+                    // Язык слова согласуется с контекстом - используем контекст
+                    return LanguageDetectionWithContext(
+                        suggestedLanguage: dominantLanguage,
+                        confidence: sentenceContext.dominantLanguageConfidence,
+                        shouldIgnore: false,
+                        method: .contextual
+                    )
+                    
+                case .inconsistent:
+                    // Язык слова не согласуется с контекстом - игнорируем контекст
+                    logDebug("Language inconsistency detected: word doesn't match context")
+                    // Продолжаем с обычной детекцией
+                    break
+                    
+                case .mixed:
+                    // Смешанный контекст - используем обычную детекцию
+                    logDebug("Mixed language context detected")
+                    break
+                    
+                case .neutral:
+                    // Недостаточно контекста
+                    break
+                }
+            }
+        }
+        
+        // Если нет сильного контекста или есть несоответствие, используем обычную детекцию
+        return detectLanguageWithContext(
+            text: text,
+            semanticResult: semanticResult,
+            externalContext: externalContext
+        )
     }
 }
 
