@@ -118,8 +118,9 @@ class EventProcessor {
         
         // Очищаем буфер при начале нового ввода (специальные клавиши)
         if shouldClearBufferForNewInput(event: event) {
+            let bufferState = bufferManager.getState()
             bufferManager.clearForNewInput()
-            logDebug("Buffer cleared for new input due to special key: \(event.keyCode)")
+            logDebug("Buffer cleared for new input due to special key: \(event.keyCode). Previous state: \(bufferState)")
         }
         
         // Handle Arrows explicitly (clear buffer to avoid confusion)
@@ -289,6 +290,7 @@ class EventProcessor {
     
     private func processWord() -> EventProcessingResult {
         guard let word = bufferManager.getCurrentWord() else {
+            logDebug("processWord: No current word in buffer")
             return EventProcessingResult(
                 shouldBlockOriginalEvent: false,
                 eventsToSend: [],
@@ -297,7 +299,20 @@ class EventProcessor {
             )
         }
         
-        logDebug("Processing word: '\(word)'")
+        // Проверяем максимальную длину слова
+        if word.count > config.maxWordLength {
+            logDebug("processWord: Word too long (\(word.count) > \(config.maxWordLength)), skipping processing")
+            bufferManager.clearWord()
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
+        }
+        
+        let bufferState = bufferManager.getState()
+        logDebug("Processing word: '\(word)' (buffer state: \(bufferState))")
         
         // 1. Анализируем контекст
         let detectionContext = DetectionContext(
@@ -516,9 +531,26 @@ class EventProcessor {
             return true
         }
         
+        // Проверяем, не является ли слово валидным в текущей раскладке
+        // Если нейросеть уверена, что слово английское, а мы пытаемся переключить на русский,
+        // возможно, слово действительно английское и не требует конвертации
+        let neuralResult = neuralLanguageClassifier.classifyLanguage(
+            word,
+            context: ClassificationContext(
+                applicationType: currentContext.applicationType,
+                previousLanguage: currentContext.lastDetectedLanguage
+            )
+        )
+        
+        if neuralResult.confidence >= 0.8 && neuralResult.language == currentLayoutLanguage {
+            logDebug("Neural network confident word is \(neuralResult.language?.rawValue ?? "unknown") (confidence: \(neuralResult.confidence)) and matches current layout → not switching")
+            return false
+        }
+        
         logDebug("❌ shouldSwitchLayout returning FALSE (no conditions met)")
         logDebug("  - isWordComplete=\(isWordComplete(word)), confidence=\(confidence)")
         logDebug("  - word.count=\(word.count) >= 5, confidence >= 0.9")
+        logDebug("  - neural result: \(neuralResult.language?.rawValue ?? "unknown") with confidence \(neuralResult.confidence)")
         return false
     }
     
@@ -581,7 +613,15 @@ class EventProcessor {
             return result.confidence
         }
         
-        logDebug("Classifier doesn't match requested language → confidence 0.0")
+        // Если нейросеть уверена в другом языке с высокой уверенностью,
+        // это может означать, что слово действительно на другом языке
+        // и не требует конвертации
+        if result.confidence >= 0.8 {
+            logDebug("Classifier confident in different language (\(result.language?.rawValue ?? "unknown") with confidence \(result.confidence)) → confidence 0.0 for requested language \(language)")
+            return 0.0
+        }
+        
+        logDebug("Classifier doesn't match requested language and confidence is low → confidence 0.0")
         return 0.0
     }
     
@@ -590,8 +630,7 @@ class EventProcessor {
         
         logDebug("isEnglishWordInRussianLayout checking: '\(word)' -> '\(lowercased)', length=\(lowercased.count)")
         
-        // Проверяем, выглядит ли слово как английское слово в русской раскладке
-        // "руддщ" = "hello", "щт" = "in", "йфя" = "was", "еуые" = "test"
+        // 1. Проверяем известные паттерны (для быстрой проверки)
         let englishInRussianPatterns = [
             "руддщ", // hello
             "щт",    // in
@@ -630,17 +669,47 @@ class EventProcessor {
             }
         }
         
-        logDebug("❌ isEnglishWordInRussianLayout: '\(lowercased)' doesn't match any pattern")
+        // 2. Для коротких слов (2-4 символа) используем NSSpellChecker
+        if lowercased.count >= 2 && lowercased.count <= 4 {
+            logDebug("Short word (\(lowercased.count) chars), checking with NSSpellChecker...")
+            
+            // Проверяем, является ли слово валидным английским словом
+            let isEnglishWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "en")
+            logDebug("NSSpellChecker: '\(lowercased)' is valid English word: \(isEnglishWord)")
+            
+            // Если слово валидно в английском, вероятно, это английское слово в русской раскладке
+            if isEnglishWord {
+                logDebug("✅ isEnglishWordInRussianLayout: Short word '\(lowercased)' is valid English word via NSSpellChecker")
+                return true
+            }
+        }
+        
+        // 3. Используем нейросеть для дополнительной проверки
+        let neuralResult = neuralLanguageClassifier.classifyLanguage(
+            lowercased,
+            context: ClassificationContext(
+                applicationType: currentContext.applicationType,
+                previousLanguage: currentContext.lastDetectedLanguage
+            )
+        )
+        
+        if neuralResult.language == .english && neuralResult.confidence >= 0.7 {
+            logDebug("✅ isEnglishWordInRussianLayout: Neural network confident word is English (confidence: \(neuralResult.confidence))")
+            return true
+        }
+        
+        logDebug("❌ isEnglishWordInRussianLayout: '\(lowercased)' doesn't match any pattern or validation")
         logDebug("  Word characters: \(Array(lowercased).map { String($0) })")
-        logDebug("  First pattern characters: \(Array(englishInRussianPatterns.first ?? "").map { String($0) })")
+        logDebug("  Neural result: \(neuralResult.language?.rawValue ?? "unknown") with confidence \(neuralResult.confidence)")
         return false
     }
     
     private func isRussianWordInEnglishLayout(_ word: String) -> Bool {
         let lowercased = word.lowercased()
         
-        // Проверяем, выглядит ли слово как русское слово в английской раскладке
-        // "ghbdtn" = "привет", "rfr" = "как", "plhf" = "миша"
+        logDebug("isRussianWordInEnglishLayout checking: '\(word)' -> '\(lowercased)', length=\(lowercased.count)")
+        
+        // 1. Проверяем известные паттерны (для быстрой проверки)
         let russianInEnglishPatterns = [
             "ghbdtn", // привет
             "rfr",    // как
@@ -664,12 +733,48 @@ class EventProcessor {
             "el",     // ел
         ]
         
-        for pattern in russianInEnglishPatterns {
+        logDebug("Checking against \(russianInEnglishPatterns.count) patterns")
+        
+        for (index, pattern) in russianInEnglishPatterns.enumerated() {
+            logDebug("  Pattern \(index): '\(pattern)' (length: \(pattern.count))")
             if lowercased.hasPrefix(pattern) {
+                logDebug("✅ isRussianWordInEnglishLayout: '\(lowercased)' matches pattern '\(pattern)' at index \(index)")
                 return true
             }
         }
         
+        // 2. Для коротких слов (2-4 символа) используем NSSpellChecker
+        if lowercased.count >= 2 && lowercased.count <= 4 {
+            logDebug("Short word (\(lowercased.count) chars), checking with NSSpellChecker...")
+            
+            // Проверяем, является ли слово валидным русским словом
+            let isRussianWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "ru")
+            logDebug("NSSpellChecker: '\(lowercased)' is valid Russian word: \(isRussianWord)")
+            
+            // Если слово валидно в русском, вероятно, это русское слово в английской раскладке
+            if isRussianWord {
+                logDebug("✅ isRussianWordInEnglishLayout: Short word '\(lowercased)' is valid Russian word via NSSpellChecker")
+                return true
+            }
+        }
+        
+        // 3. Используем нейросеть для дополнительной проверки
+        let neuralResult = neuralLanguageClassifier.classifyLanguage(
+            lowercased,
+            context: ClassificationContext(
+                applicationType: currentContext.applicationType,
+                previousLanguage: currentContext.lastDetectedLanguage
+            )
+        )
+        
+        if neuralResult.language == .russian && neuralResult.confidence >= 0.7 {
+            logDebug("✅ isRussianWordInEnglishLayout: Neural network confident word is Russian (confidence: \(neuralResult.confidence))")
+            return true
+        }
+        
+        logDebug("❌ isRussianWordInEnglishLayout: '\(lowercased)' doesn't match any pattern or validation")
+        logDebug("  Word characters: \(Array(lowercased).map { String($0) })")
+        logDebug("  Neural result: \(neuralResult.language?.rawValue ?? "unknown") with confidence \(neuralResult.confidence)")
         return false
     }
     
@@ -1223,6 +1328,7 @@ struct ProcessingConfig {
     let enableAutoComplete: Bool
     let enableDoubleShift: Bool
     let minWordLengthForSwitch: Int
+    let maxWordLength: Int
     let wordExceptions: Set<String>
     let confidenceThreshold: Double
     
@@ -1231,6 +1337,7 @@ struct ProcessingConfig {
         enableAutoComplete: false,   // Отключаем для тестирования
         enableDoubleShift: false,    // Отключаем для тестирования
         minWordLengthForSwitch: 4,   // Увеличиваем для уменьшения false positives
+        maxWordLength: 50,           // Максимальная длина слова для обработки
         wordExceptions: ["a", "i", "to", "in", "on", "at", "the", "and", "but", "or"],
         confidenceThreshold: 0.8     // Повышаем порог уверенности
     )
@@ -1242,6 +1349,7 @@ struct ProcessingConfig {
           enableAutoComplete: \(enableAutoComplete),
           enableDoubleShift: \(enableDoubleShift),
           minWordLengthForSwitch: \(minWordLengthForSwitch),
+          maxWordLength: \(maxWordLength),
           wordExceptions: \(wordExceptions.count) words,
           confidenceThreshold: \(confidenceThreshold)
         )

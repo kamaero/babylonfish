@@ -212,9 +212,15 @@ class BufferManager {
             // Не добавляем знак препинания в wordBuffer
             logDebug("BufferManager: Punctuation '\(character)' detected, word completed")
         } else {
+            // Проверяем максимальную длину слова
+            if wordBuffer.count >= maxWordLength {
+                logDebug("BufferManager: Word length limit reached (\(maxWordLength) chars), forcing word completion")
+                completeCurrentWord()
+            }
+            
             // Добавляем только буквы и цифры в wordBuffer
             wordBuffer.append(character)
-            logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)'")
+            logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)' (total chars: \(characterBuffer.count), word length: \(wordBuffer.count))")
         }
     }
     
