@@ -67,6 +67,7 @@ struct LanguageConstants {
     
     static let impossibleEnInRuKeys: Set<String> = [
         "рудд", "руддщ", // hell, hello
+        "руду", "рудущ", // hello (автокоррекция macOS: руддщ → руду)
         "цр", "црфе", // wh, what
         "рщ", "рщц", // ho, how
         "ер", "ерфе", // th, that
@@ -75,7 +76,8 @@ struct LanguageConstants {
         "фтв", "фтв", // and
         "ащк", "ащкпуе", // for, forget
         "фку", "фку", // are
-        "цшер", "цшер" // with
+        "цшер", "цшер", // with
+        "нщг", "нщг" // you
     ]
     
     static let programmingKeywords: Set<String> = [

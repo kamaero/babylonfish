@@ -509,18 +509,19 @@ class NeuralLanguageClassifier {
         
         // 4. Проверяем "невозможные паттерны" для "неправильной раскладки"
         logDebug("Checking impossible patterns...")
+        let cleanText = text.lowercased().filter { $0.isLetter }
         for pattern in LanguageConstants.impossibleRuInEnKeys where pattern.count >= 3 {
-            if text.contains(pattern) {
-                scores[.russian, default: 0] += 0.7
-                logDebug("Found impossible Russian pattern '\(pattern)' in text → Russian +0.7")
+            if cleanText.contains(pattern) {
+                scores[.russian, default: 0] += 0.95
+                logDebug("Found impossible Russian pattern '\(pattern)' in text → Russian +0.95")
                 break
             }
         }
         
-        for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 4 {
-            if text.contains(pattern) {
-                scores[.english, default: 0] += 0.7
-                logDebug("Found impossible English pattern '\(pattern)' in text → English +0.7")
+        for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 3 {
+            if cleanText.contains(pattern) {
+                scores[.english, default: 0] += 0.95
+                logDebug("Found impossible English pattern '\(pattern)' in text → English +0.95")
                 break
             }
         }

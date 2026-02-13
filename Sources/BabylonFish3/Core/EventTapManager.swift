@@ -31,6 +31,9 @@ class EventTapManager {
     private var eventsBlocked: Int = 0
     private var startTime: Date?
     
+    // Защита от рекурсии
+    private var isSendingEvents = false
+    
     private init() {
         logDebug("EventTapManager initialized")
     }
@@ -473,15 +476,31 @@ class EventTapManager {
             return
         }
         
+        // Защита от рекурсии: если мы уже отправляем события, не обрабатываем новые
+        if isSendingEvents {
+            logDebug("⚠️ RECURSION DETECTED: Already sending events, skipping")
+            return
+        }
+        
+        isSendingEvents = true
+        defer { isSendingEvents = false }
+        
+        // Устанавливаем source PID для всех событий как PID BabylonFish
+        let currentPid = Int64(getpid())
+        
         for (index, event) in events.enumerated() {
             do {
                 logDebug("[\(index+1)/\(events.count)] Converting event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
                 let cgEvent = try convertKeyboardEventToCGEvent(event)
+                
+                // Устанавливаем source PID как PID BabylonFish, чтобы shouldIgnoreEvent мог их игнорировать
+                cgEvent.setIntegerValueField(.eventSourceUserData, value: currentPid)
+                
                 let sourcePid = cgEvent.getIntegerValueField(.eventSourceUserData)
                 logDebug("[\(index+1)/\(events.count)] Created CGEvent with source PID: \(sourcePid)")
                 
-                logDebug("[\(index+1)/\(events.count)] Posting to .cghidEventTap...")
-                cgEvent.post(tap: .cghidEventTap)
+                logDebug("[\(index+1)/\(events.count)] Posting to .cgSessionEventTap...")
+                cgEvent.post(tap: .cgSessionEventTap)
                 logDebug("[\(index+1)/\(events.count)] ✅ POSTED synthetic event")
                 
                 // Небольшая задержка между событиями для стабильности
@@ -544,9 +563,19 @@ class EventTapManager {
     private func checkInputMonitoringPermissions() -> Bool {
         // В macOS 10.15+ нужно Input Monitoring permission
         let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-        // Access 0 = Denied, 1 = Granted, 2 = Granted (Modify)
-        let granted = (access == kIOHIDAccessTypeGranted) || (access.rawValue == 1) || (access.rawValue == 2)
-        logDebug("Input Monitoring check: \(granted ? "granted" : "denied") (access=\(access))")
+        
+        // Log detailed status
+        let statusDescription: String
+        switch access.rawValue {
+        case 0: statusDescription = "Denied (kIOHIDAccessTypeNone)"
+        case 1: statusDescription = "Granted (kIOHIDAccessTypeMonitor)"
+        case 2: statusDescription = "Granted+Modify (kIOHIDAccessTypeModify)"
+        default: statusDescription = "Unknown (\(access.rawValue))"
+        }
+        
+        // Check all possible granted states
+        let granted = access == kIOHIDAccessTypeGranted || access.rawValue == 1 || access.rawValue == 2
+        logDebug("Input Monitoring check: \(granted ? "granted" : "denied") (access=\(statusDescription))")
         return granted
     }
     

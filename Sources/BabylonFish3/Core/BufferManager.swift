@@ -124,12 +124,29 @@ class BufferManager {
     
     /// Очищает весь буфер
     func clear() {
+        let charCount = characterBuffer.count
+        let wordBuf = wordBuffer
+        
         if !wordBuffer.isEmpty {
             clearWord()
         }
         
         characterBuffer.removeAll()
-        logDebug("Buffer cleared")
+        logDebug("Buffer cleared: had \(charCount) characters, wordBuffer='\(wordBuf)'")
+    }
+    
+    /// Принудительно очищает буфер при начале нового ввода
+    func clearForNewInput() {
+        let charCount = characterBuffer.count
+        let wordBuf = wordBuffer
+        
+        // Полностью очищаем все буферы
+        characterBuffer.removeAll()
+        wordBuffer = ""
+        previousWords.removeAll()
+        bufferHistory.removeAll()
+        
+        logDebug("Buffer cleared for new input: had \(charCount) characters, wordBuffer='\(wordBuf)'")
     }
     
     /// Получает полный буфер символов
@@ -187,12 +204,27 @@ class BufferManager {
             }
             // Не добавляем границу в wordBuffer
             logDebug("BufferManager: Strict boundary '\(character)' detected, word completed")
+        } else if isPunctuation(character) {
+            // Если это знак препинания, завершаем текущее слово
+            if !wordBuffer.isEmpty {
+                completeCurrentWord()
+            }
+            // Не добавляем знак препинания в wordBuffer
+            logDebug("BufferManager: Punctuation '\(character)' detected, word completed")
         } else {
-            // Добавляем ВСЕ символы в wordBuffer, включая знаки препинания
-            // Знаки препинания будут обработаны в shouldProcessWord()
+            // Добавляем только буквы и цифры в wordBuffer
             wordBuffer.append(character)
             logDebug("BufferManager: Added char '\(character)' to wordBuffer: '\(wordBuffer)'")
         }
+    }
+    
+    private func isPunctuation(_ character: Character) -> Bool {
+        let punctuationSet: Set<Character> = [
+            "!", "?", ".", ",", ";", ":", "'", "\"", "(", ")", "[", "]", "{", "}",
+            "-", "_", "=", "+", "@", "#", "$", "%", "^", "&", "*", "~", "`", "|", "\\",
+            "/", "<", ">"
+        ]
+        return punctuationSet.contains(character)
     }
     
     private func completeCurrentWord() {
@@ -235,11 +267,11 @@ class BufferManager {
         logDebug("Buffer trimmed to \(characterBuffer.count) characters")
     }
     
-    /// Перестраивает wordBuffer из characterBuffer, исключая строгие границы
+    /// Перестраивает wordBuffer из characterBuffer, исключая строгие границы и знаки препинания
     private func reconstructWordBuffer() {
         wordBuffer = ""
         for char in characterBuffer {
-            if !strictWordBoundaries.contains(char) {
+            if !strictWordBoundaries.contains(char) && !isPunctuation(char) {
                 wordBuffer.append(char)
             }
         }

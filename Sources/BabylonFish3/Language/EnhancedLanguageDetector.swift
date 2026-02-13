@@ -179,12 +179,18 @@ class EnhancedLanguageDetector {
         let enLower = enString.lowercased()
         let ruLower = ruString.lowercased()
         
+        logDebug("EnhancedLanguageDetector: analyzeWithoutContext called")
+        logDebug("  enString='\(enString)', enLower='\(enLower)'")
+        logDebug("  ruString='\(ruString)', ruLower='\(ruLower)'")
+        
         // 1. Проверка общих слов (быстрый путь)
         if LanguageConstants.commonRuShortWords.contains(ruLower) {
+            logDebug("  Found common Russian short word: '\(ruLower)'")
             return BasicAnalysis(language: .russian, confidence: 0.95, method: .commonWords)
         }
         
         if LanguageConstants.commonEnglishWords.contains(enLower) {
+            logDebug("  Found common English word: '\(enLower)'")
             return BasicAnalysis(language: .english, confidence: 0.95, method: .commonWords)
         }
         
@@ -197,15 +203,29 @@ class EnhancedLanguageDetector {
         let isRuValid = systemDictionary.isRussianWord(ruLower)
         let isEnValid = systemDictionary.isEnglishWord(enLower)
         
+        logDebug("  System dictionary check:")
+        logDebug("    isRussianWord('\(ruLower)') = \(isRuValid)")
+        logDebug("    isEnglishWord('\(enLower)') = \(isEnValid)")
+        
+        // Специальная проверка для коротких английских слов в русской раскладке
+        if ruLower.count <= 3 && !isRuValid && isEnValid {
+            logDebug("  Short word (≤3 chars): '\(ruLower)' is not Russian but '\(enLower)' is English")
+            logDebug("  Likely English word typed in Russian layout → English language")
+            return BasicAnalysis(language: .english, confidence: 0.85, method: .dictionary)
+        }
+        
         if isRuValid && !isEnValid {
+            logDebug("  Only Russian valid → Russian language")
             return BasicAnalysis(language: .russian, confidence: 0.9, method: .dictionary)
         }
         
         if isEnValid && !isRuValid {
+            logDebug("  Only English valid → English language")
             return BasicAnalysis(language: .english, confidence: 0.9, method: .dictionary)
         }
         
         if isRuValid && isEnValid {
+            logDebug("  Both valid → ambiguous case")
             // Оба варианта valid - нужен дополнительный анализ
             return analyzeAmbiguousCase(enString: enString, ruString: ruString)
         }
@@ -231,19 +251,23 @@ class EnhancedLanguageDetector {
         }
         
         // 5. Невозможные паттерны
+        let cleanEnString = enString.lowercased().filter { $0.isLetter }
+        let cleanRuString = ruString.lowercased().filter { $0.isLetter }
+        
         for pattern in LanguageConstants.impossibleRuInEnKeys where pattern.count >= 3 {
-            if enString.contains(pattern) {
-                return BasicAnalysis(language: .russian, confidence: 0.85, method: .impossiblePatterns)
+            if cleanEnString.contains(pattern) {
+                return BasicAnalysis(language: .russian, confidence: 0.95, method: .impossiblePatterns)
             }
         }
         
-        for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 4 {
-            if ruString.contains(pattern) {
-                return BasicAnalysis(language: .english, confidence: 0.85, method: .impossiblePatterns)
+        for pattern in LanguageConstants.impossibleEnInRuKeys where pattern.count >= 3 {
+            if cleanRuString.contains(pattern) {
+                return BasicAnalysis(language: .english, confidence: 0.95, method: .impossiblePatterns)
             }
         }
         
         // 6. Не удалось определить
+        logDebug("  Could not determine language for '\(ruLower)'/'\(enLower)'")
         return BasicAnalysis(language: nil, confidence: 0, method: .unknown)
     }
     
@@ -335,30 +359,58 @@ class EnhancedLanguageDetector {
     private func analyzeWordAlone(enString: String, ruString: String) -> EnhancedWordAnalysis {
         var analysis = EnhancedWordAnalysis()
         
-        // Проверяем наличие кириллицы/латиницы
-        let hasCyrillic = ruString.contains { char in
+        // Проверяем наличие кириллицы/латиницы в ОБОИХ строках
+        // enString - английские символы для этих key codes
+        // ruString - русские символы для этих key codes
+        
+        let hasCyrillicInRu = ruString.contains { char in
             let scalar = String(char).unicodeScalars.first?.value ?? 0
             return (0x0400...0x04FF).contains(scalar)
         }
         
-        let hasLatin = enString.contains { char in
+        let hasLatinInEn = enString.contains { char in
             let scalar = String(char).unicodeScalars.first?.value ?? 0
             return (0x0041...0x007A).contains(scalar)
         }
         
-        if hasCyrillic && !hasLatin {
-            analysis.suggestedLanguage = .russian
-            analysis.confidence = 0.9
-        } else if hasLatin && !hasCyrillic {
+        let hasCyrillicInEn = enString.contains { char in
+            let scalar = String(char).unicodeScalars.first?.value ?? 0
+            return (0x0400...0x04FF).contains(scalar)
+        }
+        
+        let hasLatinInRu = ruString.contains { char in
+            let scalar = String(char).unicodeScalars.first?.value ?? 0
+            return (0x0041...0x007A).contains(scalar)
+        }
+        
+        // Логика определения:
+        // 1. Если enString содержит латиницу, а ruString содержит кириллицу → вероятно английское слово в русской раскладке
+        // 2. Если ruString содержит кириллицу, а enString содержит латиницу → вероятно русское слово в английской раскладке
+        // 3. Если оба содержат один тип символов → неопределенно
+        
+        if hasLatinInEn && hasCyrillicInRu && !hasCyrillicInEn && !hasLatinInRu {
+            // Английское слово в русской раскладке (например, "руддщ" → "hello")
             analysis.suggestedLanguage = .english
-            analysis.confidence = 0.9
+            analysis.confidence = 0.8
+        } else if hasCyrillicInRu && hasLatinInEn && !hasLatinInRu && !hasCyrillicInEn {
+            // Русское слово в английской раскладке (например, "ghbdtn" → "привет")
+            analysis.suggestedLanguage = .russian
+            analysis.confidence = 0.8
+        } else if hasCyrillicInRu && !hasLatinInEn {
+            // Только кириллица в ruString, нет латиницы в enString
+            analysis.suggestedLanguage = .russian
+            analysis.confidence = 0.7
+        } else if hasLatinInEn && !hasCyrillicInRu {
+            // Только латиница в enString, нет кириллицы в ruString
+            analysis.suggestedLanguage = .english
+            analysis.confidence = 0.7
         } else {
             // Смешанные или другие символы
             analysis.confidence = 0.5
         }
         
-        analysis.containsCyrillic = hasCyrillic
-        analysis.containsLatin = hasLatin
+        analysis.containsCyrillic = hasCyrillicInRu || hasCyrillicInEn
+        analysis.containsLatin = hasLatinInEn || hasLatinInRu
         
         return analysis
     }

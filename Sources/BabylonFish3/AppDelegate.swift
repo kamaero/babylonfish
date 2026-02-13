@@ -21,13 +21,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         suggestionWindow = SuggestionWindow()
         
         let bundlePath = Bundle.main.bundlePath
-        let executablePath = Bundle.main.executableURL?.path ?? (CommandLine.arguments.first ?? "")
+        let _ = Bundle.main.executableURL?.path ?? (CommandLine.arguments.first ?? "") // Используем _ чтобы избежать предупреждения
         let info = Bundle.main.infoDictionary ?? [:]
         let version = info["CFBundleShortVersionString"] as? String ?? "3.0.0"
         let build = info["CFBundleVersion"] as? String ?? "unknown"
-        logDebug("BabylonFish 3.0 launch: pid=\(ProcessInfo.processInfo.processIdentifier) bundle=\(bundlePath) exe=\(executablePath) version=\(version) build=\(build)")
+        let bundleID = info["CFBundleIdentifier"] as? String ?? "com.babylonfish.app"
         
-        // Create status bar controller (engine can be attached later)
+        // Форматируем путь для логов
+         let formattedPath: String
+         if bundlePath.hasPrefix("/Applications/") {
+             formattedPath = "System: \(bundlePath)"
+         } else if bundlePath.hasPrefix("/Users/") {
+             let components = bundlePath.components(separatedBy: "/")
+             if components.count > 3 {
+                 formattedPath = "User: ~/\(components[3...].joined(separator: "/"))"
+             } else {
+                 formattedPath = "User: \(bundlePath)"
+             }
+         } else {
+             formattedPath = bundlePath
+         }
+         
+         logDebug("BabylonFish 3.0 launch: pid=\(ProcessInfo.processInfo.processIdentifier) bundleID=\(bundleID) path=\(formattedPath) version=\(version) build=\(build)")
+         
+         // Create status bar controller (engine can be attached later)
         statusBarController = StatusBarController(engine: nil)
         
         // Check if this is first launch

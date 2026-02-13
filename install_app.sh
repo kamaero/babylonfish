@@ -3,9 +3,17 @@
 # Configuration
 APP_NAME="BabylonFish ML"
 EXECUTABLE_NAME="BabylonFish3"
-BUNDLE_ID="com.babylonfish.app.ml"
+BUNDLE_ID="com.babylonfish.app.ml2"
 VERSION="3.0.17"
-INSTALL_DIR="$HOME/Applications"
+
+# Always install to /Applications for Accessibility permissions
+INSTALL_DIR="/Applications"
+echo "Installing to system directory: $INSTALL_DIR"
+# Check if we have write permissions
+if [ ! -w "/Applications" ]; then
+    echo "Note: You may need to enter your password to install to /Applications"
+fi
+
 BUILD_DIR=".build/release"
 
 # APP_BUNDLE will be defined after version increment
@@ -157,11 +165,23 @@ if [ -x "$PLISTBUDDY" ]; then
 fi
 
 echo "Installing to $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"
-ditto "$DIST_DIR/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"
-xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true
-if [ -x "/usr/bin/codesign" ]; then
-  /usr/bin/codesign --force --deep --sign - --entitlements Entitlements.plist "$INSTALL_DIR/$APP_BUNDLE" >/dev/null 2>&1 || true
+
+# Check if we need sudo for /Applications
+if [ "$INSTALL_DIR" = "/Applications" ] && [ ! -w "/Applications" ]; then
+    echo "Using sudo to install to /Applications..."
+    sudo mkdir -p "$INSTALL_DIR"
+    sudo ditto "$DIST_DIR/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"
+    sudo xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true
+    if [ -x "/usr/bin/codesign" ]; then
+        sudo /usr/bin/codesign --force --deep --sign - --entitlements Entitlements.plist "$INSTALL_DIR/$APP_BUNDLE" >/dev/null 2>&1 || true
+    fi
+else
+    mkdir -p "$INSTALL_DIR"
+    ditto "$DIST_DIR/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"
+    xattr -dr com.apple.quarantine "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true
+    if [ -x "/usr/bin/codesign" ]; then
+        /usr/bin/codesign --force --deep --sign - --entitlements Entitlements.plist "$INSTALL_DIR/$APP_BUNDLE" >/dev/null 2>&1 || true
+    fi
 fi
 if [ -n "$ALT_INSTALL_DIR" ] && [ "$INSTALL_DIR" != "$ALT_INSTALL_DIR" ]; then
   rm -rf "$ALT_INSTALL_DIR/$APP_BUNDLE"

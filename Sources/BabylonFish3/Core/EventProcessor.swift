@@ -116,6 +116,12 @@ class EventProcessor {
             )
         }
         
+        // Очищаем буфер при начале нового ввода (специальные клавиши)
+        if shouldClearBufferForNewInput(event: event) {
+            bufferManager.clearForNewInput()
+            logDebug("Buffer cleared for new input due to special key: \(event.keyCode)")
+        }
+        
         // Handle Arrows explicitly (clear buffer to avoid confusion)
         if event.keyCode >= 123 && event.keyCode <= 126 {
              bufferManager.clear()
@@ -407,28 +413,63 @@ class EventProcessor {
     }
     
     private func shouldSwitchLayout(for word: String, detectedLanguage: Language) -> Bool {
-        // 1. Проверяем минимальную длину слова
-        guard word.count >= config.minWordLengthForSwitch else { return false }
+        logDebug("shouldSwitchLayout called for word='\(word)', detectedLanguage=\(detectedLanguage), word.count=\(word.count), minWordLengthForSwitch=\(config.minWordLengthForSwitch)")
+        
+        // Специальная проверка для обратной конвертации (английские слова в русской раскладке)
+        // Для таких слов разрешаем более короткую длину
+        logDebug("Checking reverse conversion: detectedLanguage=\(detectedLanguage), word='\(word)'")
+        if detectedLanguage == .english {
+            logDebug("detectedLanguage is .english, checking isEnglishWordInRussianLayout...")
+            let isEnglishInRussian = isEnglishWordInRussianLayout(word)
+            logDebug("isEnglishWordInRussianLayout('\(word)') = \(isEnglishInRussian)")
+            if isEnglishInRussian {
+                logDebug("English word in Russian layout detected: '\(word)'")
+                // Для обратной конвертации разрешаем слова от 2 букв
+                if word.count >= 2 {
+                    logDebug("✅ Short English word in Russian layout (≥2 chars) → allowing switch")
+                    return true
+                } else {
+                    logDebug("Word too short even for reverse conversion: \(word.count) < 2")
+                    return false
+                }
+            }
+        }
+        
+        // 1. Проверяем минимальную длину слова для обычных случаев
+        guard word.count >= config.minWordLengthForSwitch else {
+            logDebug("Word too short: \(word.count) < \(config.minWordLengthForSwitch)")
+            return false
+        }
         
         // 2. Проверяем исключения
         if config.wordExceptions.contains(word.lowercased()) {
+            logDebug("Word is in exceptions list: '\(word.lowercased())'")
             return false
         }
         
         // 3. Получаем текущую раскладку
         guard let currentLayout = layoutSwitcher.getCurrentLayout() else {
+            logDebug("Cannot get current layout")
             return false
         }
+        
+        logDebug("Current layout: \(currentLayout)")
         
         // 4. Определяем язык текущей раскладки
         guard let currentLayoutLanguage = layoutSwitcher.getLanguage(for: currentLayout) else {
+            logDebug("Cannot get language for layout: \(currentLayout)")
             return false
         }
         
+        logDebug("Current layout language: \(currentLayoutLanguage), detected language: \(detectedLanguage)")
+        
         // 5. Сравниваем языки
         if currentLayoutLanguage == detectedLanguage {
+            logDebug("Current layout language matches detected language: \(currentLayoutLanguage)")
             return false
         }
+        
+        logDebug("Languages differ: current=\(currentLayoutLanguage), detected=\(detectedLanguage)")
         
         // 6. Проверяем, не переключили ли мы уже раскладку для этого слова
         if currentContext.lastLayoutSwitchTime != nil {
@@ -471,22 +512,30 @@ class EventProcessor {
         // Если слово длинное (>5 символов) и уверенность высокая
         if word.count >= 5 && confidence >= 0.9 {
             logDebug("Long word detection: confidence \(confidence) for '\(word)'")
+            logDebug("✅ shouldSwitchLayout returning TRUE (long word with high confidence)")
             return true
         }
         
+        logDebug("❌ shouldSwitchLayout returning FALSE (no conditions met)")
+        logDebug("  - isWordComplete=\(isWordComplete(word)), confidence=\(confidence)")
+        logDebug("  - word.count=\(word.count) >= 5, confidence >= 0.9")
         return false
     }
     
     private func getDetectionConfidence(for word: String, language: Language) -> Double {
+        logDebug("getDetectionConfidence called for word='\(word)', language=\(language)")
+        
         // Проверяем биграммы/триграммы для раннего определения
         let cleanWord = word.trimmingCharacters(in: .whitespacesAndNewlines)
         
         if cleanWord.count >= 2 {
             let bigram = String(cleanWord.prefix(2)).lowercased()
             if language == .russian && isRussianBigram(bigram) {
+                logDebug("Found Russian bigram '\(bigram)' → confidence 1.0")
                 return 1.0
             }
             if language == .english && isEnglishBigram(bigram) {
+                logDebug("Found English bigram '\(bigram)' → confidence 1.0")
                 return 1.0
             }
         }
@@ -494,11 +543,26 @@ class EventProcessor {
         if cleanWord.count >= 3 {
             let trigram = String(cleanWord.prefix(3)).lowercased()
             if language == .russian && isRussianTrigram(trigram) {
+                logDebug("Found Russian trigram '\(trigram)' → confidence 1.0")
                 return 1.0
             }
             if language == .english && isEnglishTrigram(trigram) {
+                logDebug("Found English trigram '\(trigram)' → confidence 1.0")
                 return 1.0
             }
+        }
+        
+        // Специальная проверка для обратной конвертации
+        // Если слово выглядит как английское слово, напечатанное в русской раскладке
+        if language == .english && isEnglishWordInRussianLayout(cleanWord) {
+            logDebug("Detected English word in Russian layout: '\(cleanWord)' → confidence 0.95")
+            return 0.95
+        }
+        
+        // Если слово выглядит как русское слово, напечатанное в английской раскладке
+        if language == .russian && isRussianWordInEnglishLayout(cleanWord) {
+            logDebug("Detected Russian word in English layout: '\(cleanWord)' → confidence 0.95")
+            return 0.95
         }
         
         // Используем нейросеть для оценки уверенности
@@ -510,11 +574,103 @@ class EventProcessor {
             )
         )
         
+        logDebug("Neural classifier result: language=\(String(describing: result.language)), confidence=\(result.confidence)")
+        
         if result.language == language {
+            logDebug("Classifier matches requested language → confidence \(result.confidence)")
             return result.confidence
         }
         
+        logDebug("Classifier doesn't match requested language → confidence 0.0")
         return 0.0
+    }
+    
+    private func isEnglishWordInRussianLayout(_ word: String) -> Bool {
+        let lowercased = word.lowercased()
+        
+        logDebug("isEnglishWordInRussianLayout checking: '\(word)' -> '\(lowercased)', length=\(lowercased.count)")
+        
+        // Проверяем, выглядит ли слово как английское слово в русской раскладке
+        // "руддщ" = "hello", "щт" = "in", "йфя" = "was", "еуые" = "test"
+        let englishInRussianPatterns = [
+            "руддщ", // hello
+            "щт",    // in
+            "йфя",   // was
+            "еуые",  // test
+            "рщц",   // how
+            "яку",   // ??? (возможно you, но нщг тоже you)
+            "нщг",   // you
+            "фку",   // are
+            "ерш",   // the
+            "ышы",   // she
+            "феу",   // get
+            "ыеш",   // test (alternative)
+            "тпд",   // and
+            "шыр",   // car
+            "юиф",   // zip
+            "инд",   // win
+            "щта",   // inta
+            "шырт",  // cart
+            "щец",   // ice
+            "щкл",   // ickl
+            "штп",   // intp
+            "ю",     // ,
+        ]
+        
+        logDebug("Checking against \(englishInRussianPatterns.count) patterns")
+        
+        for (index, pattern) in englishInRussianPatterns.enumerated() {
+            logDebug("  Pattern \(index): '\(pattern)' (length: \(pattern.count))")
+            if lowercased.hasPrefix(pattern) {
+                logDebug("✅ isEnglishWordInRussianLayout: '\(lowercased)' matches pattern '\(pattern)' at index \(index)")
+                if pattern == "руддщ" {
+                    logDebug("🎯 SPECIAL: Found 'руддщ' pattern for word '\(word)'")
+                }
+                return true
+            }
+        }
+        
+        logDebug("❌ isEnglishWordInRussianLayout: '\(lowercased)' doesn't match any pattern")
+        logDebug("  Word characters: \(Array(lowercased).map { String($0) })")
+        logDebug("  First pattern characters: \(Array(englishInRussianPatterns.first ?? "").map { String($0) })")
+        return false
+    }
+    
+    private func isRussianWordInEnglishLayout(_ word: String) -> Bool {
+        let lowercased = word.lowercased()
+        
+        // Проверяем, выглядит ли слово как русское слово в английской раскладке
+        // "ghbdtn" = "привет", "rfr" = "как", "plhf" = "миша"
+        let russianInEnglishPatterns = [
+            "ghbdtn", // привет
+            "rfr",    // как
+            "plhf",   // миша
+            "ntcn",   // нету
+            "yfl",    // был
+            "kbr",    // кбр
+            "ujd",    // удж
+            "gbt",    // гбт
+            "dbt",    // дбт
+            "elt",    // елт
+            "gh",     // пр
+            "rj",     // ка
+            "pl",     // ми
+            "nt",     // не
+            "yf",     // бы
+            "kb",     // кб
+            "uj",     // уд
+            "gb",     // гб
+            "db",     // дб
+            "el",     // ел
+        ]
+        
+        for pattern in russianInEnglishPatterns {
+            if lowercased.hasPrefix(pattern) {
+                return true
+            }
+        }
+        
+        return false
     }
     
     private func isSuspiciousStart(word: String, language: Language) -> Bool {
@@ -536,7 +692,9 @@ class EventProcessor {
     private func isWordComplete(_ word: String) -> Bool {
         // Слово закончено если есть пробел, пунктуация или нажат Enter
         let separators = CharacterSet(charactersIn: " .,!?;:\"\n\t")
-        return word.unicodeScalars.contains { separators.contains($0) }
+        let result = word.unicodeScalars.contains { separators.contains($0) }
+        logDebug("isWordComplete('\(word)') = \(result)")
+        return result
     }
     
     private func isRussianBigram(_ bigram: String) -> Bool {
@@ -901,6 +1059,49 @@ class EventProcessor {
         // Получаем выделенный текст из активного приложения
         // Упрощенная реализация
         return nil
+    }
+    
+    private func shouldClearBufferForNewInput(event: KeyboardEvent) -> Bool {
+        // Клавиши, которые указывают на начало нового ввода
+        let newInputKeyCodes: Set<Int> = [
+            36, // Return/Enter
+            76, // Enter (numeric keypad)
+            48, // Tab
+            53, // Escape
+            123, // Left Arrow
+            124, // Right Arrow
+            125, // Down Arrow
+            126, // Up Arrow
+            115, // Home
+            119, // End
+            117, // Delete (forward delete)
+            114, // Help
+            122, // F1
+            120, // F2
+            99,  // F3
+            118, // F4
+            96,  // F5
+            97,  // F6
+            98,  // F7
+            100, // F8
+            101, // F9
+            109, // F10
+            103, // F11
+            111, // F12
+        ]
+        
+        // Проверяем, является ли это клавишей нового ввода
+        if newInputKeyCodes.contains(event.keyCode) {
+            return true
+        }
+        
+        // Проверяем комбинации с модификаторами (Cmd, Ctrl, Alt)
+        if event.flags.contains(.maskCommand) || event.flags.contains(.maskControl) || event.flags.contains(.maskAlternate) {
+            logDebug("Modifier key detected (Cmd/Ctrl/Alt), clearing buffer")
+            return true
+        }
+        
+        return false
     }
 
     private func isSecureFocusedField() -> Bool {

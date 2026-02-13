@@ -95,6 +95,14 @@ class StatusBarController: NSObject {
     private func setupMenu() {
         let menu = NSMenu()
         
+        // Добавляем информацию о версии и пути
+        let versionInfo = getVersionInfo()
+        let versionItem = NSMenuItem(title: versionInfo, action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         let openPerms = NSMenuItem(title: "Открыть настройки разрешений", action: #selector(openPermissions), keyEquivalent: "")
         openPerms.target = self
         menu.addItem(openPerms)
@@ -110,6 +118,31 @@ class StatusBarController: NSObject {
         menu.addItem(quit)
         
         statusItem.menu = menu
+    }
+    
+    private func getVersionInfo() -> String {
+        let bundle = Bundle.main
+        let info = bundle.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "3.0.0"
+        let build = info["CFBundleVersion"] as? String ?? "unknown"
+        let bundlePath = bundle.bundlePath
+        
+        // Форматируем путь для отображения
+        let formattedPath: String
+        if bundlePath.hasPrefix("/Applications/") {
+            formattedPath = "System: \(bundlePath)"
+        } else if bundlePath.hasPrefix("/Users/") {
+            let components = bundlePath.components(separatedBy: "/")
+            if components.count > 3 {
+                formattedPath = "User: ~/\(components[3...].joined(separator: "/"))"
+            } else {
+                formattedPath = "User: \(bundlePath)"
+            }
+        } else {
+            formattedPath = bundlePath
+        }
+        
+        return "BabylonFish v\(version) (\(build)) - \(formattedPath)"
     }
     
     @objc private func openPermissions() {
