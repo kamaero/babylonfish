@@ -15,10 +15,10 @@ tail -f ~/babylonfish_debug.log
 ### 2. Использование скрипта для сброса разрешений
 ```bash
 # Дайте скрипту права на выполнение
-chmod +x fix_permissions.sh
+chmod +x fix_permissions_safe.sh
 
 # Запустите скрипт
-./fix_permissions.sh
+./fix_permissions_safe.sh
 ```
 
 ### 3. Ручной сброс разрешений

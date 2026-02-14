@@ -38,6 +38,10 @@ class EventProcessor {
     private var correctionsMade: Int = 0
     private var startTime: Date?
     
+    // Обработка слов при нажатии Space/Return
+    private var pendingSpaceWord: String?
+    private var pendingSpaceRequiresProcessing: Bool = false
+    
     /// Инициализирует процессор событий
     init(
         bufferManager: BufferManager,
@@ -116,6 +120,69 @@ class EventProcessor {
             )
         }
         
+        // Handle Space and Return as word boundaries
+        if event.keyCode == 49 || event.keyCode == 36 { // Space or Return
+            logDebug("Word boundary detected (Space/Return), checking current word")
+            
+            // Если есть текущее слово, проверяем нужно ли его обработать
+            if let currentWord = bufferManager.getCurrentWord(), !currentWord.isEmpty {
+                logDebug("Current word before Space/Return: '\(currentWord)'")
+                
+                // Проверяем, является ли это английским словом в русской раскладке
+                if isEnglishWordInRussianLayout(currentWord) {
+                    logDebug("English word in Russian layout detected: '\(currentWord)'")
+                    // Отмечаем, что нужно обработать это слово
+                    // Но не обрабатываем сейчас, чтобы избежать рекурсии
+                    pendingSpaceWord = currentWord
+                    pendingSpaceRequiresProcessing = true
+                } else {
+                    // Для обычных слов проверяем уверенность
+                    let languageResult = neuralLanguageClassifier.classifyLanguage(
+                        currentWord,
+                        context: ClassificationContext(
+                            applicationType: currentContext.applicationType,
+                            previousLanguage: currentContext.lastDetectedLanguage
+                        )
+                    )
+                    
+                    if let detectedLanguage = languageResult.language, languageResult.confidence >= 0.8 {
+                        logDebug("High confidence (\(languageResult.confidence)) for language \(detectedLanguage)")
+                        pendingSpaceWord = currentWord
+                        pendingSpaceRequiresProcessing = true
+                    } else {
+                        logDebug("Word doesn't require processing")
+                        pendingSpaceWord = nil
+                        pendingSpaceRequiresProcessing = false
+                    }
+                }
+            } else {
+                logDebug("No current word")
+                pendingSpaceWord = nil
+                pendingSpaceRequiresProcessing = false
+            }
+            
+            // Очищаем буфер для нового ввода
+            bufferManager.clearForNewInput()
+            logDebug("Buffer cleared for Space/Return")
+            
+            // Если слово требует обработки, планируем ее на следующий тик
+            if pendingSpaceRequiresProcessing, let word = pendingSpaceWord {
+                logDebug("Scheduling word processing for: '\(word)'")
+                // Планируем обработку слова асинхронно
+                DispatchQueue.main.async { [weak self] in
+                    self?.processPendingWord(word)
+                }
+            }
+            
+            // Возвращаем результат без блокировки оригинального события
+            return EventProcessingResult(
+                shouldBlockOriginalEvent: false,
+                eventsToSend: [],
+                detectedLanguage: nil,
+                shouldSwitchLayout: false
+            )
+        }
+        
         // Очищаем буфер при начале нового ввода (специальные клавиши)
         if shouldClearBufferForNewInput(event: event) {
             let bufferState = bufferManager.getState()
@@ -154,6 +221,34 @@ class EventProcessor {
         if bufferManager.shouldProcessWord() {
             logDebug("Word ready for processing")
             return processWord()
+        }
+        
+        // 4.1. Проверяем длину текущего слова для обработки без явных границ
+        if let currentWord = bufferManager.getCurrentWord(), currentWord.count >= config.minWordLengthForSwitch {
+            logDebug("Word length \(currentWord.count) ≥ \(config.minWordLengthForSwitch), checking if processing needed")
+            
+            // Проверяем, является ли это английским словом в русской раскладке
+            if isEnglishWordInRussianLayout(currentWord) {
+                logDebug("English word in Russian layout detected: '\(currentWord)', forcing word processing")
+                // Принудительно завершаем слово и обрабатываем
+                bufferManager.forceCompleteCurrentWord()
+                return processWord()
+            }
+            
+            // Для обычных слов проверяем уверенность
+            let languageResult = neuralLanguageClassifier.classifyLanguage(
+                currentWord,
+                context: ClassificationContext(
+                    applicationType: currentContext.applicationType,
+                    previousLanguage: currentContext.lastDetectedLanguage
+                )
+            )
+            
+            if let detectedLanguage = languageResult.language, languageResult.confidence >= 0.8 {
+                logDebug("High confidence (\(languageResult.confidence)) for language \(detectedLanguage), forcing word processing")
+                bufferManager.forceCompleteCurrentWord()
+                return processWord()
+            }
         }
         
         // 5. Проверяем специальные комбинации клавиш
@@ -457,6 +552,61 @@ class EventProcessor {
         )
     }
     
+    /// Обрабатывает слово, которое было отложено при нажатии Space/Return
+    private func processPendingWord(_ word: String) {
+        logDebug("processPendingWord called for: '\(word)'")
+        
+        // Проверяем, является ли это английским словом в русской раскладке
+        if isEnglishWordInRussianLayout(word) {
+            logDebug("Processing English word in Russian layout: '\(word)'")
+            
+            // Конвертируем слово из русской раскладки в английскую
+            let englishWord = convertFromRussianLayout(word)
+            logDebug("Converted '\(word)' → '\(englishWord)'")
+            
+            // Получаем английскую раскладку и переключаемся на нее
+            if let englishLayout = layoutSwitcher.getLayoutForLanguage(.english),
+               layoutSwitcher.switchToLayout(englishLayout) {
+                logDebug("Switched to English layout for word: '\(englishWord)'")
+                layoutSwitches += 1
+                
+                // Отправляем события для замены слова
+                // Note: В реальной реализации здесь будет отправка событий клавиатуры
+                // для удаления русского слова и ввода английского
+            }
+        } else {
+            // Для обычных слов с высокой уверенностью
+            logDebug("Processing high-confidence word: '\(word)'")
+            
+            let languageResult = neuralLanguageClassifier.classifyLanguage(
+                word,
+                context: ClassificationContext(
+                    applicationType: currentContext.applicationType,
+                    previousLanguage: currentContext.lastDetectedLanguage
+                )
+            )
+            
+            if let detectedLanguage = languageResult.language, languageResult.confidence >= 0.8 {
+                logDebug("Detected language: \(detectedLanguage) with confidence \(languageResult.confidence)")
+                
+                // Проверяем, нужно ли переключать раскладку
+                if shouldSwitchLayout(for: word, detectedLanguage: detectedLanguage) {
+                    logDebug("Should switch layout for word: '\(word)'")
+                    
+                    if let targetLayout = layoutSwitcher.getLayoutForLanguage(detectedLanguage),
+                       layoutSwitcher.switchToLayout(targetLayout) {
+                        logDebug("Switched to \(detectedLanguage) layout")
+                        layoutSwitches += 1
+                    }
+                }
+            }
+        }
+        
+        // Сбрасываем состояние
+        pendingSpaceWord = nil
+        pendingSpaceRequiresProcessing = false
+    }
+    
     private func shouldSwitchLayout(for word: String, detectedLanguage: Language) -> Bool {
         logDebug("shouldSwitchLayout called for word='\(word)', detectedLanguage=\(detectedLanguage), word.count=\(word.count), minWordLengthForSwitch=\(config.minWordLengthForSwitch)")
         
@@ -475,6 +625,25 @@ class EventProcessor {
                     return true
                 } else {
                     logDebug("Word too short even for reverse conversion: \(word.count) < 2")
+                    return false
+                }
+            }
+        }
+        
+        // Специальная проверка для русских слов в английской раскладке
+        // Когда пользователь печатает русские слова в английской раскладке
+        if detectedLanguage == .russian {
+            logDebug("detectedLanguage is .russian, checking if it's Russian word in English layout...")
+            let isRussianInEnglish = isRussianWordInEnglishLayout(word)
+            logDebug("isRussianWordInEnglishLayout('\(word)') = \(isRussianInEnglish)")
+            if isRussianInEnglish {
+                logDebug("Russian word in English layout detected: '\(word)'")
+                // Для таких слов разрешаем переключение от 3 букв
+                if word.count >= 3 {
+                    logDebug("✅ Russian word in English layout (≥3 chars) → allowing switch")
+                    return true
+                } else {
+                    logDebug("Word too short for Russian in English layout: \(word.count) < 3")
                     return false
                 }
             }
@@ -660,6 +829,16 @@ class EventProcessor {
         
         logDebug("isEnglishWordInRussianLayout checking: '\(word)' -> '\(lowercased)', length=\(lowercased.count)")
         
+        // Английское слово в русской раскладке должно состоять из русских букв
+        // Проверяем, что слово содержит только русские буквы
+        let russianLetters = CharacterSet(charactersIn: "абвгдеёжзийклмнопрстуфхцчшщъыьэюя")
+        let wordCharacterSet = CharacterSet(charactersIn: lowercased)
+        
+        if !russianLetters.isSuperset(of: wordCharacterSet) {
+            logDebug("❌ isEnglishWordInRussianLayout: Word '\(lowercased)' contains non-Russian letters, cannot be English word in Russian layout")
+            return false
+        }
+        
         // 1. Проверяем известные паттерны (для быстрой проверки)
         let englishInRussianPatterns = [
             "руддщ", // hello
@@ -751,33 +930,103 @@ class EventProcessor {
         return false
     }
     
+    /// Конвертирует слово из русской раскладки в английскую
+    private func convertFromRussianLayout(_ word: String) -> String {
+        logDebug("convertFromRussianLayout called for: '\(word)'")
+        
+        // Таблица соответствия русских символов в русской раскладке английским символам
+        let russianToEnglishMap: [Character: Character] = [
+            "й": "q", "ц": "w", "у": "e", "к": "r", "е": "t", "н": "y", "г": "u", "ш": "i", "щ": "o", "з": "p",
+            "х": "[", "ъ": "]", "ф": "a", "ы": "s", "в": "d", "а": "f", "п": "g", "р": "h", "о": "j", "л": "k",
+            "д": "l", "ж": ";", "э": "'", "я": "z", "ч": "x", "с": "c", "м": "v", "и": "b", "т": "n", "ь": "m",
+            "б": ",", "ю": ".", "ё": "`",
+            "Й": "Q", "Ц": "W", "У": "E", "К": "R", "Е": "T", "Н": "Y", "Г": "U", "Ш": "I", "Щ": "O", "З": "P",
+            "Х": "{", "Ъ": "}", "Ф": "A", "Ы": "S", "В": "D", "А": "F", "П": "G", "Р": "H", "О": "J", "Л": "K",
+            "Д": "L", "Ж": ":", "Э": "\"", "Я": "Z", "Ч": "X", "С": "C", "М": "V", "И": "B", "Т": "N", "Ь": "M",
+            "Б": "<", "Ю": ">", "Ё": "~"
+        ]
+        
+        var result = ""
+        for char in word {
+            if let englishChar = russianToEnglishMap[char] {
+                result.append(englishChar)
+            } else {
+                // Если символ не найден в таблице, оставляем как есть
+                result.append(char)
+            }
+        }
+        
+        logDebug("convertFromRussianLayout: '\(word)' → '\(result)'")
+        return result
+    }
+    
+    /// Конвертирует слово из английской раскладки в русскую
+    private func convertFromEnglishLayout(_ word: String) -> String {
+        logDebug("convertFromEnglishLayout called for: '\(word)'")
+        
+        // Таблица соответствия английских символов в английской раскладке русским символам
+        let englishToRussianMap: [Character: Character] = [
+            "q": "й", "w": "ц", "e": "у", "r": "к", "t": "е", "y": "н", "u": "г", "i": "ш", "o": "щ", "p": "з",
+            "[": "х", "]": "ъ", "a": "ф", "s": "ы", "d": "в", "f": "а", "g": "п", "h": "р", "j": "о", "k": "л",
+            "l": "д", ";": "ж", "'": "э", "z": "я", "x": "ч", "c": "с", "v": "м", "b": "и", "n": "т", "m": "ь",
+            ",": "б", ".": "ю", "`": "ё",
+            "Q": "Й", "W": "Ц", "E": "У", "R": "К", "T": "Е", "Y": "Н", "U": "Г", "I": "Ш", "O": "Щ", "P": "З",
+            "{": "Х", "}": "Ъ", "A": "Ф", "S": "Ы", "D": "В", "F": "А", "G": "П", "H": "Р", "J": "О", "K": "Л",
+            "L": "Д", ":": "Ж", "\"": "Э", "Z": "Я", "X": "Ч", "C": "С", "V": "М", "B": "И", "N": "Т", "M": "Ь",
+            "<": "Б", ">": "Ю", "~": "Ё"
+        ]
+        
+        var result = ""
+        for char in word {
+            if let russianChar = englishToRussianMap[char] {
+                result.append(russianChar)
+            } else {
+                // Если символ не найден в таблице, оставляем как есть
+                result.append(char)
+            }
+        }
+        
+        logDebug("convertFromEnglishLayout: '\(word)' → '\(result)'")
+        return result
+    }
+    
     private func isRussianWordInEnglishLayout(_ word: String) -> Bool {
         let lowercased = word.lowercased()
         
         logDebug("isRussianWordInEnglishLayout checking: '\(word)' -> '\(lowercased)', length=\(lowercased.count)")
         
-        // 1. Проверяем известные паттерны (для быстрой проверки)
+        // Русское слово в английской раскладке должно состоять из английских букв
+        // Проверяем, что слово содержит только английские буквы
+        let englishLetters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz")
+        let wordCharacterSet = CharacterSet(charactersIn: lowercased)
+        
+        if !englishLetters.isSuperset(of: wordCharacterSet) {
+            logDebug("❌ isRussianWordInEnglishLayout: Word '\(lowercased)' contains non-English letters, cannot be Russian word in English layout")
+            return false
+        }
+        
+        // 1. Проверяем известные паттерны (русские слова в английской раскладке)
         let russianInEnglishPatterns = [
-            "ghbdtn", // привет
-            "rfr",    // как
-            "plhf",   // миша
-            "ntcn",   // нету
-            "yfl",    // был
-            "kbr",    // кбр
-            "ujd",    // удж
-            "gbt",    // гбт
-            "dbt",    // дбт
-            "elt",    // елт
-            "gh",     // пр
-            "rj",     // ка
-            "pl",     // ми
-            "nt",     // не
-            "yf",     // бы
-            "kb",     // кб
-            "uj",     // уд
-            "gb",     // гб
-            "db",     // дб
-            "el",     // ел
+            "ghbdtn",  // привет
+            "yfcnz",   // слово
+            "njkmrj",  // номер
+            "rfr",     // что
+            "vjq",     // да
+            "yt",      // нет
+            "lj",      // да (альтернатива)
+            "xtkjdtr", // программа
+            "cnfnm",   // место
+            "gjckt",   // время
+            "rjvgm",   // человек
+            "dctv",    // дело
+            "gjcnj",   // время (альтернатива)
+            "rfrjq",   // что-то
+            "vj;tn",   // делать
+            "ytn",     // нет (длиннее)
+            "ljkz",    // давай
+            "xtkjd",   // програм
+            "cnf",     // мес
+            "gjc",     // вре
         ]
         
         logDebug("Checking against \(russianInEnglishPatterns.count) patterns")
@@ -786,23 +1035,42 @@ class EventProcessor {
             logDebug("  Pattern \(index): '\(pattern)' (length: \(pattern.count))")
             if lowercased.hasPrefix(pattern) {
                 logDebug("✅ isRussianWordInEnglishLayout: '\(lowercased)' matches pattern '\(pattern)' at index \(index)")
+                if pattern == "ghbdtn" {
+                    logDebug("🎯 SPECIAL: Found 'ghbdtn' pattern for word '\(word)' (привет в английской раскладке)")
+                }
                 return true
             }
         }
         
-        // 2. Для коротких слов (2-4 символа) используем NSSpellChecker
-        if lowercased.count >= 2 && lowercased.count <= 4 {
-            logDebug("Short word (\(lowercased.count) chars), checking with NSSpellChecker...")
+        // 2. Для коротких слов (3-6 символов) используем улучшенную проверку с NSSpellChecker
+        if lowercased.count >= 3 && lowercased.count <= 6 {
+            logDebug("Short word (\(lowercased.count) chars), checking with enhanced NSSpellChecker logic...")
             
-            // Проверяем, является ли слово валидным русским словом
+            // Проверяем оба языка через NSSpellChecker
+            let isEnglishWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "en")
             let isRussianWord = SystemDictionaryService.shared.checkSpelling(lowercased, languageCode: "ru")
-            logDebug("NSSpellChecker: '\(lowercased)' is valid Russian word: \(isRussianWord)")
             
-            // Если слово валидно в русском, вероятно, это русское слово в английской раскладке
-            if isRussianWord {
-                logDebug("✅ isRussianWordInEnglishLayout: Short word '\(lowercased)' is valid Russian word via NSSpellChecker")
+            logDebug("NSSpellChecker results:")
+            logDebug("  '\(lowercased)' is valid English word: \(isEnglishWord)")
+            logDebug("  '\(lowercased)' is valid Russian word: \(isRussianWord)")
+            
+            // Улучшенная логика: проверяем оба языка и сравниваем
+            // Если слово валидно только в русском, но не в английском → это русское слово в английской раскладке
+            if isRussianWord && !isEnglishWord {
+                logDebug("✅ isRussianWordInEnglishLayout: Short word '\(lowercased)' is ONLY valid in Russian via NSSpellChecker")
                 return true
             }
+            
+            // Если слово валидно в обоих языках → неоднозначный случай, нужна дополнительная проверка
+            if isEnglishWord && isRussianWord {
+                logDebug("⚠️  Ambiguous case: '\(lowercased)' is valid in both English and Russian")
+                // Проверяем, есть ли слово в списке известных русских слов в английской раскладке
+                // Если нет, то скорее всего это английское слово
+                return false
+            }
+            
+            // Если слово не валидно ни в одном языке → проверяем через нейросеть
+            logDebug("❌ isRussianWordInEnglishLayout: Short word '\(lowercased)' is not valid in Russian or ambiguous")
         }
         
         // 3. Используем нейросеть для дополнительной проверки
@@ -817,6 +1085,25 @@ class EventProcessor {
         if neuralResult.language == .russian && neuralResult.confidence >= 0.7 {
             logDebug("✅ isRussianWordInEnglishLayout: Neural network confident word is Russian (confidence: \(neuralResult.confidence))")
             return true
+        }
+        
+        // 4. Проверяем, содержит ли слово только символы английской раскладки
+        // Русские слова в английской раскладке содержат только символы a-z
+        let englishLetters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz")
+        let wordCharacterSet = CharacterSet(charactersIn: lowercased)
+        
+        if englishLetters.isSuperset(of: wordCharacterSet) {
+            logDebug("Word contains only English letters, could be Russian in English layout")
+            // Дополнительная проверка: конвертируем из английской раскладки в русскую
+            let convertedToRussian = convertFromEnglishLayout(lowercased)
+            logDebug("Converted from English layout: '\(lowercased)' → '\(convertedToRussian)'")
+            
+            // Проверяем, является ли результат валидным русским словом
+            let isConvertedRussianWord = SystemDictionaryService.shared.checkSpelling(convertedToRussian, languageCode: "ru")
+            if isConvertedRussianWord {
+                logDebug("✅ isRussianWordInEnglishLayout: Converted word '\(convertedToRussian)' is valid Russian word")
+                return true
+            }
         }
         
         logDebug("❌ isRussianWordInEnglishLayout: '\(lowercased)' doesn't match any pattern or validation")
@@ -956,18 +1243,23 @@ class EventProcessor {
             logDebug("Separated: word='\(cleanWord)', leading='\(leadingPunctuation)', trailing='\(trailingPunctuation)'")
             
             // 5. Удаляем неправильное слово (backspace события)
-            let backspaceEvents = createBackspaceEvents(count: word.count)
-            logDebug("Created \(backspaceEvents.count) backspace events for word length \(word.count)")
+            // Используем длину cleanWord, так как знаки препинания обычно одинаковы в обеих раскладках
+            let backspaceEvents = createBackspaceEvents(count: cleanWord.count)
+            logDebug("Created \(backspaceEvents.count) backspace events for clean word length \(cleanWord.count) (original word length: \(word.count))")
             
             // 6. Печатаем исправленное слово
-            let correctedWord = cleanWord // Будет конвертировано в getKeyEventsForWord
+            // Явно конвертируем слово в целевой язык
+            let correctedWord = convertWordToTargetLanguage(cleanWord, targetLanguage: targetLanguage)
             let correctionEvents = layoutSwitcher.getKeyEventsForWord(correctedWord, inLanguage: targetLanguage)
-            logDebug("Created \(correctionEvents.count) correction events")
+            logDebug("Created \(correctionEvents.count) correction events for word '\(correctedWord)'")
             
-            // 7. Добавляем знаки препинания (если есть) в правильном порядке
+            // 7. Добавляем события в правильном порядке
             var allEvents: [KeyboardEvent] = []
             
-            // Сначала leading punctuation (если есть)
+            // Сначала удаляем неправильное слово
+            allEvents.append(contentsOf: backspaceEvents)
+            
+            // Затем leading punctuation (если есть) - знаки препинания перед словом
             if !leadingPunctuation.isEmpty {
                 logDebug("Adding leading punctuation: '\(leadingPunctuation)'")
                 let leadingEvents = createKeyEventsForText(leadingPunctuation)
@@ -975,10 +1267,9 @@ class EventProcessor {
             }
             
             // Затем исправленное слово
-            allEvents.append(contentsOf: backspaceEvents)
             allEvents.append(contentsOf: correctionEvents)
             
-            // Затем trailing punctuation (если есть)
+            // Затем trailing punctuation (если есть) - знаки препинания после слова
             if !trailingPunctuation.isEmpty {
                 logDebug("Adding trailing punctuation: '\(trailingPunctuation)'")
                 let trailingEvents = createKeyEventsForText(trailingPunctuation)
@@ -1218,6 +1509,7 @@ class EventProcessor {
         let newInputKeyCodes: Set<Int> = [
             36, // Return/Enter
             76, // Enter (numeric keypad)
+            49, // Space (добавлено как граница слова)
             48, // Tab
             53, // Escape
             123, // Left Arrow
@@ -1365,6 +1657,61 @@ class EventProcessor {
         
         return specialKeys.contains(keyCode)
     }
+    
+    /// Конвертирует слово в целевой язык
+    private func convertWordToTargetLanguage(_ word: String, targetLanguage: Language) -> String {
+        logDebug("convertWordToTargetLanguage: word='\(word)', target=\(targetLanguage)")
+        
+        // Определяем, в какой раскладке находится исходное слово
+        let isEnglishWord = isEnglishWordInRussianLayout(word)
+        let isRussianWord = isRussianWordInEnglishLayout(word)
+        
+        logDebug("Word analysis: isEnglishWord=\(isEnglishWord), isRussianWord=\(isRussianWord)")
+        
+        // Проверяем, нужно ли конвертировать слово
+        // 1. Если слово уже в правильной раскладке для целевого языка, возвращаем как есть
+        //    - Для английского языка: слово должно быть английским словом в английской раскладке
+        //    - Для русского языка: слово должно быть русским словом в русской раскладке
+        // 2. isEnglishWordInRussianLayout означает "английское слово в русской раскладке"
+        //    - Если целевой язык английский, нужно конвертировать в английскую раскладку
+        // 3. isRussianWordInEnglishLayout означает "русское слово в английской раскладке"
+        //    - Если целевой язык русский, нужно конвертировать в русскую раскладку
+        
+        // Проверяем, состоит ли слово из букв целевого языка
+        let isWordInTargetLanguageLayout: Bool
+        switch targetLanguage {
+        case .english:
+            // Для английского языка: слово должно состоять из английских букв
+            let englishLetters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+            let wordCharacterSet = CharacterSet(charactersIn: word)
+            isWordInTargetLanguageLayout = englishLetters.isSuperset(of: wordCharacterSet)
+        case .russian:
+            // Для русского языка: слово должно состоять из русских букв
+            let russianLetters = CharacterSet(charactersIn: "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ")
+            let wordCharacterSet = CharacterSet(charactersIn: word)
+            isWordInTargetLanguageLayout = russianLetters.isSuperset(of: wordCharacterSet)
+        }
+        
+        logDebug("Word in target language layout: \(isWordInTargetLanguageLayout)")
+        
+        // Если слово уже в правильной раскладке для целевого языка, возвращаем как есть
+        if isWordInTargetLanguageLayout {
+            logDebug("Word is already in target language layout, returning as-is")
+            return word
+        }
+        
+        // Конвертируем с помощью KeyMapper
+        let converted = KeyMapper.shared.convertString(word)
+        logDebug("KeyMapper conversion: '\(word)' → '\(converted)'")
+        
+        // Проверяем результат конвертации
+        if converted == word {
+            logDebug("No conversion needed or conversion failed")
+            return word
+        }
+        
+        return converted
+    }
 }
 
 // MARK: - Вспомогательные структуры
@@ -1383,7 +1730,7 @@ struct ProcessingConfig {
         enableTypoCorrection: false, // Отключаем для тестирования
         enableAutoComplete: false,   // Отключаем для тестирования
         enableDoubleShift: false,    // Отключаем для тестирования
-        minWordLengthForSwitch: 4,   // Увеличиваем для уменьшения false positives
+        minWordLengthForSwitch: 3,   // Уменьшаем для лучшего переключения раскладки
         maxWordLength: 50,           // Максимальная длина слова для обработки
         wordExceptions: ["a", "i", "to", "in", "on", "at", "the", "and", "but", "or"],
         confidenceThreshold: 0.8     // Повышаем порог уверенности

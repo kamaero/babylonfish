@@ -64,7 +64,7 @@ tail -f ~/babylonfish_debug.log
 
 ### Для сброса разрешений (если нужно):
 ```bash
-./fix_permissions.sh
+./fix_permissions_safe.sh
 ```
 
 ## Известные проблемы (решенные)

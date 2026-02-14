@@ -2,7 +2,7 @@ import CreateML
 import Foundation
 
 // 1. Load Data
-let csvFile = URL(fileURLWithPath: "ML/Data/sample_dataset.csv")
+let csvFile = URL(fileURLWithPath: "ML/Data/expanded_dataset.csv")
 do {
     let data = try MLDataTable(contentsOf: csvFile)
     

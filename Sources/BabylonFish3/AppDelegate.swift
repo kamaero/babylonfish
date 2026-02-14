@@ -9,7 +9,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var babylonFishEngine: BabylonFishEngine?
     var suggestionWindow: SuggestionWindow?
     var retryTimer: Timer?
-    var eventsCheckTimer: Timer?
     var configObserver: NSObjectProtocol?
     var firstLaunchAlertShown = false
     
@@ -133,41 +132,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func ensurePermissionsAndStart() {
-        // 1. Check Accessibility (Trusted Process)
-        let axGranted = hasAccessibility(prompt: false)
+        logDebug("=== ПРОВЕРКА ПРАВ И ЗАПУСК ===")
         
-        // 2. Check Input Monitoring
-        let imGranted = hasInputMonitoring()
+        // Защита от слишком частых проверок
+        struct CheckLock {
+            static var isChecking = false
+            static var lastCheckTime: Date?
+        }
         
-        logDebug("Permission check: Accessibility=\(axGranted), InputMonitoring=\(imGranted)")
-        
-        if !imGranted {
-            logDebug("Permissions missing: Accessibility=\(axGranted), InputMonitoring=\(imGranted)")
-            
-            // Show diagnostic info
-            showPermissionDiagnostics(axGranted: axGranted, imGranted: imGranted)
-            
-            // Trigger Input Monitoring prompt if possible
-            checkInputMonitoringPermissions()
-            
-            // Show alert only if we haven't shown the first launch alert recently
-            // or if permissions are still missing after user was prompted
-            if !firstLaunchAlertShown {
-                // First launch alert will be shown separately
-                return
-            } else {
-                // Show welcome window for missing permissions
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.showWelcomeWindow()
-                }
-            }
+        let now = Date()
+        if let lastCheck = CheckLock.lastCheckTime, now.timeIntervalSince(lastCheck) < 1.0 {
+            logDebug("⚠️ СЛИШКОМ ЧАСТЫЕ ПРОВЕРКИ ПРАВ, пропускаем")
             return
         }
         
-        if !axGranted {
-            logDebug("Warning: Accessibility is missing. App will run with reduced functionality (no context awareness).")
+        if CheckLock.isChecking {
+            logDebug("⚠️ ПРОВЕРКА ПРАВ УЖЕ ВЫПОЛНЯЕТСЯ, пропускаем")
+            return
         }
-
+        
+        CheckLock.isChecking = true
+        CheckLock.lastCheckTime = now
+        
+        defer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                CheckLock.isChecking = false
+            }
+        }
+        
+        // 1. Проверяем доступность (Trusted Process)
+        let axGranted = hasAccessibility(prompt: false)
+        
+        // 2. Проверяем мониторинг ввода
+        let imGranted = hasInputMonitoring()
+        
+        logDebug("✅ Проверка прав: Доступность=\(axGranted), Мониторинг ввода=\(imGranted)")
+        
+        if !imGranted {
+            logDebug("⚠️ Недостаточно прав: Доступность=\(axGranted), Мониторинг ввода=\(imGranted)")
+            
+            // Показываем алерт, если оба разрешения отсутствуют
+            if !axGranted && !imGranted {
+                DispatchQueue.main.async {
+                    self.showPermissionsAlert()
+                }
+            }
+            
+            // Планируем повторную проверку
+            scheduleRetry()
+            return
+        }
+        
+        // Все права получены, запускаем движок
+        logDebug("✅ Все права получены, запускаем движок...")
+        
         // Permissions OK. Start.
         startAppLogic()
     }
@@ -189,7 +207,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             Или используйте скрипт для сброса разрешений:
             Откройте Терминал и выполните:
             cd \(FileManager.default.currentDirectoryPath)
-            ./fix_permissions.sh
+            ./fix_permissions_safe.sh
             """
             alert.alertStyle = .warning
             alert.addButton(withTitle: "Открыть настройки")
@@ -213,140 +231,300 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     
-    private func showPermissionDiagnostics(axGranted: Bool, imGranted: Bool) {
-        logDebug("=== Permission Diagnostics ===")
-        logDebug("App Bundle ID: \(Bundle.main.bundleIdentifier ?? "unknown")")
-        logDebug("App Path: \(Bundle.main.bundlePath)")
-        logDebug("Executable Path: \(Bundle.main.executableURL?.path ?? "unknown")")
-        
-        // Check if app is in Accessibility list
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        logDebug("AXIsProcessTrustedWithOptions: \(trusted)")
-        
-        // Check Input Monitoring via IOHID
-        let imStatus = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-        logDebug("IOHIDCheckAccess status: \(imStatus)")
-        
-        // Log TCC database info if possible
-        logDebug("TCC Database paths:")
-        logDebug("  User: ~/Library/Application Support/com.apple.TCC/TCC.db")
-        logDebug("  System: /Library/Application Support/com.apple.TCC/TCC.db")
-        
-        // Show user-friendly message
-        if !axGranted && !imGranted {
-            logDebug("Diagnosis: Both permissions missing")
-        } else if !axGranted {
-            logDebug("Diagnosis: Only Accessibility missing")
-        } else if !imGranted {
-            logDebug("Diagnosis: Only Input Monitoring missing")
-        }
-        
-        logDebug("=== End Diagnostics ===")
-    }
+
     
     private func startAppLogic() {
-        // Migrate settings from previous versions
-        AppConfig.migrateFromPreviousVersions()
-        
-        // Create BabylonFish 3.0 engine
-        babylonFishEngine = BabylonFishEngine()
-        babylonFishEngine?.setSuggestionWindow(suggestionWindow)
-        
-        // Update status bar controller with engine
-        statusBarController?.updateEngine(babylonFishEngine)
-        
-        // Add observer for configuration changes
-        configObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("BabylonFishConfigChanged"),
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            guard let self = self else { return }
-            let newConfig = AppConfig.load()
-            self.babylonFishEngine?.updateConfiguration(newConfig)
-        }
-        
-        let success = babylonFishEngine?.start() ?? false
-        
-        if !success {
-            logDebug("BabylonFishEngine failed to start despite permissions checks.")
+        do {
+            // Migrate settings from previous versions
+            try AppConfig.migrateFromPreviousVersions()
             
-            // Check permissions again to see if they were revoked
-            let axGranted = hasAccessibility(prompt: false)
-            let imGranted = hasInputMonitoring()
+            // Create BabylonFish 3.0 engine
+            babylonFishEngine = BabylonFishEngine()
+            babylonFishEngine?.setSuggestionWindow(suggestionWindow)
             
-            if !axGranted || !imGranted {
-                logDebug("Permissions appear to be missing after engine start attempt")
-                logDebug("Accessibility: \(axGranted), InputMonitoring: \(imGranted)")
+            // Update status bar controller with engine
+            statusBarController?.updateEngine(babylonFishEngine)
+            
+            // Add observer for configuration changes
+            configObserver = NotificationCenter.default.addObserver(
+                forName: NSNotification.Name("BabylonFishConfigChanged"),
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                guard let self = self else { return }
+                let newConfig = AppConfig.load()
+                self.babylonFishEngine?.updateConfiguration(newConfig)
+            }
+            
+            let success = babylonFishEngine?.start() ?? false
+            
+            if !success {
+                logError("BabylonFishEngine failed to start despite permissions checks.")
                 
-                // Show more aggressive alert about permissions
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    self.showPermissionTroubleshootingAlert()
+                // Check permissions again to see if they were revoked
+                let axGranted = hasAccessibility(prompt: false)
+                let imGranted = hasInputMonitoring()
+                
+                if !axGranted || !imGranted {
+                    logError("Permissions appear to be missing after engine start attempt")
+                    logError("Accessibility: \(axGranted), InputMonitoring: \(imGranted)")
+                    
+                    // Show more aggressive alert about permissions
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.showPermissionTroubleshootingAlert()
+                    }
+                } else {
+                    logError("Permissions OK but engine still failed. Possible event tap issue.")
+                    scheduleRetry()
                 }
             } else {
-                logDebug("Permissions OK but engine still failed. Possible event tap issue.")
-                scheduleRetry()
+                logInfo("BabylonFish 3.0 started successfully!")
+                
+                // Show success notification
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self.statusBarController?.showNotification(
+                        title: "BabylonFish 3.0 запущен! 🎉",
+                        message: "Теперь приложение будет автоматически переключать раскладку и исправлять опечатки."
+                    )
+                }
+                
+                scheduleEventsCheck()
             }
-        } else {
-            logDebug("BabylonFish 3.0 started successfully!")
-            
-            // Show success notification
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                self.statusBarController?.showNotification(
-                    title: "BabylonFish 3.0 запущен! 🎉",
-                    message: "Теперь приложение будет автоматически переключать раскладку и исправлять опечатки."
+        } catch {
+            logError(error, context: "Failed to start app logic")
+            // Show error to user
+            DispatchQueue.main.async {
+                self.showErrorAlert(
+                    title: "Ошибка запуска BabylonFish",
+                    message: "Не удалось запустить приложение: \(error.localizedDescription)"
                 )
             }
-            
-            scheduleEventsCheck()
         }
+    }
+    
+    private func showErrorAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .critical
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
     
     private func scheduleRetry() {
-        retryTimer?.invalidate()
-        retryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            
-            // Check permissions silently
-            if self.hasAccessibility(prompt: false) && self.hasInputMonitoring() {
-                // Try to start
-                if let engine = self.babylonFishEngine {
-                    if engine.start() {
-                        logDebug("Retry successful!")
-                        self.retryTimer?.invalidate()
-                        self.retryTimer = nil
-                    }
-                } else {
-                    // If engine not created yet, try startAppLogic
-                    self.retryTimer?.invalidate()
-                    self.retryTimer = nil
-                    self.startAppLogic()
-                }
+        logDebug("=== ПЛАНИРОВАНИЕ ПОВТОРНОЙ ПРОВЕРКИ ===")
+        
+        // Защита от слишком частых планирований
+        struct RetryLock {
+            static var isScheduling = false
+            static var lastScheduleTime: Date?
+        }
+        
+        let now = Date()
+        if let lastSchedule = RetryLock.lastScheduleTime, now.timeIntervalSince(lastSchedule) < 1.0 {
+            logDebug("⚠️ СЛИШКОМ ЧАСТОЕ ПЛАНИРОВАНИЕ ПОВТОРНОЙ ПРОВЕРКИ, пропускаем")
+            return
+        }
+        
+        if RetryLock.isScheduling {
+            logDebug("⚠️ ПЛАНИРОВАНИЕ УЖЕ ВЫПОЛНЯЕТСЯ, пропускаем")
+            return
+        }
+        
+        RetryLock.isScheduling = true
+        RetryLock.lastScheduleTime = now
+        
+        defer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                RetryLock.isScheduling = false
             }
         }
+        
+        retryTimer?.invalidate()
+        retryTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            
+            logDebug("=== ВЫПОЛНЕНИЕ ПОВТОРНОЙ ПРОВЕРКИ ===")
+            
+            // Проверяем права
+            let axGranted = self.hasAccessibility(prompt: false)
+            let imGranted = self.hasInputMonitoring()
+            
+            logDebug("✅ Проверка прав: Доступность=\(axGranted), Мониторинг ввода=\(imGranted)")
+            
+            if axGranted && imGranted {
+                // Все права получены, пытаемся запустить
+                logDebug("✅ Все права получены, пытаемся запустить движок...")
+                
+                if let engine = self.babylonFishEngine {
+                    do {
+                        try engine.start()
+                        logDebug("✅ Движок успешно запущен!")
+                        self.retryTimer?.invalidate()
+                        self.retryTimer = nil
+                        return
+                    } catch {
+                        logDebug("❌ Ошибка запуска движка: \(error)")
+                    }
+                } else {
+                    // Если движок еще не создан, создаем и запускаем
+                    logDebug("⚠️ Движок не создан, создаем...")
+                    self.startAppLogic()
+                    self.retryTimer?.invalidate()
+                    self.retryTimer = nil
+                    return
+                }
+            } else {
+                // Недостаточно прав
+                logDebug("⚠️ Недостаточно прав: Доступность=\(axGranted), Мониторинг ввода=\(imGranted)")
+                
+                // Проверяем статистику событий для диагностики
+                let stats = self.babylonFishEngine?.getAllStatistics() ?? [:]
+                if let etm = stats["eventTapManager"] as? [String: Any],
+                   let processed = etm["eventsProcessed"] as? Int,
+                   let running = etm["isRunning"] as? Bool,
+                   running, processed == 0 {
+                    logDebug("⚠️ ДИАГНОСТИКА: EventTapManager запущен, но событий не обработано")
+                    
+                    // Если движок запущен, но событий нет, возможно проблема с правами
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.runFixPermissionsScript()
+                        self.openAccessibilitySettings()
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                            self.openInputMonitoringSettings()
+                        }
+                    }
+                }
+            }
+            
+            logDebug("=== ЗАВЕРШЕНИЕ ПОВТОРНОЙ ПРОВЕРКИ ===")
+        }
+        
+        logDebug("✅ Таймер повторной проверки запланирован (интервал: 3.0 сек)")
     }
     
     @objc func openAccessibilitySettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(url)
-            scheduleRetry()
+        logDebug("📱 Открываем настройки доступности...")
+        
+        do {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
+                logDebug("✅ URL доступности: \(url)")
+                
+                // Защита от зависаний при открытии URL
+                DispatchQueue.main.async {
+                    let success = NSWorkspace.shared.open(url)
+                    if success {
+                        logDebug("✅ Настройки доступности успешно открыты")
+                    } else {
+                        logDebug("❌ Не удалось открыть настройки доступности")
+                    }
+                    
+                    // Планируем повторную проверку через 2 секунды
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.scheduleRetry()
+                    }
+                }
+            } else {
+                logDebug("❌ Не удалось создать URL для настроек доступности")
+            }
+        } catch {
+            logDebug("❌ Ошибка при открытии настроек доступности: \(error)")
         }
     }
     
     @objc func openInputMonitoringSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
-            NSWorkspace.shared.open(url)
-            scheduleRetry()
+        logDebug("📱 Открываем настройки мониторинга ввода...")
+        
+        do {
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
+                logDebug("✅ URL мониторинга ввода: \(url)")
+                
+                // Защита от зависаний при открытии URL
+                DispatchQueue.main.async {
+                    let success = NSWorkspace.shared.open(url)
+                    if success {
+                        logDebug("✅ Настройки мониторинга ввода успешно открыты")
+                    } else {
+                        logDebug("❌ Не удалось открыть настройки мониторинга ввода")
+                    }
+                    
+                    // Планируем повторную проверку через 2 секунды
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.scheduleRetry()
+                    }
+                }
+            } else {
+                logDebug("❌ Не удалось создать URL для настроек мониторинга ввода")
+            }
+        } catch {
+            logDebug("❌ Ошибка при открытии настроек мониторинга ввода: \(error)")
         }
     }
     
     @objc func resetPermissionsFromMenu() {
-        runFixPermissionsScript()
-        openAccessibilitySettings()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            self.openInputMonitoringSettings()
+        logDebug("=== ЗАПУСК СБРОСА ПРАВ ИЗ МЕНЮ ===")
+        
+        // Защита от повторных вызовов
+        struct ResetLock {
+            static var isResetting = false
+            static var lastResetTime: Date?
         }
+        
+        let now = Date()
+        if let lastReset = ResetLock.lastResetTime, now.timeIntervalSince(lastReset) < 2.0 {
+            logDebug("⚠️ СЛИШКОМ ЧАСТЫЙ СБРОС ПРАВ, пропускаем")
+            return
+        }
+        
+        if ResetLock.isResetting {
+            logDebug("⚠️ СБРОС ПРАВ УЖЕ ВЫПОЛНЯЕТСЯ, пропускаем")
+            return
+        }
+        
+        ResetLock.isResetting = true
+        ResetLock.lastResetTime = now
+        
+        defer {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                ResetLock.isResetting = false
+            }
+        }
+        
+        // Запускаем в фоновом потоке для защиты от зависаний UI
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+            
+            logDebug("🚀 Запускаем безопасный скрипт сброса прав...")
+            self.runFixPermissionsScript()
+            
+            // Открываем настройки с задержкой
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                logDebug("📱 Открываем настройки доступности...")
+                self.openAccessibilitySettings()
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    logDebug("📱 Открываем настройки мониторинга ввода...")
+                    self.openInputMonitoringSettings()
+                    
+                    // Показываем уведомление пользователю
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                        self.showResetCompleteNotification()
+                    }
+                }
+            }
+        }
+        
+        logDebug("✅ Сброс прав запущен безопасно")
+    }
+    
+    private func showResetCompleteNotification() {
+        let notification = NSUserNotification()
+        notification.title = "BabylonFish 3.0"
+        notification.informativeText = "Сброс прав выполнен. Проверьте настройки системы."
+        notification.soundName = NSUserNotificationDefaultSoundName
+        
+        NSUserNotificationCenter.default.deliver(notification)
+        logDebug("📢 Уведомление о завершении сброса прав отправлено")
     }
     
     @objc func retryStartListener() {
@@ -354,22 +532,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
     
     private func scheduleEventsCheck() {
-        eventsCheckTimer?.invalidate()
-        eventsCheckTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            let stats = self.babylonFishEngine?.getAllStatistics() ?? [:]
-            if let etm = stats["eventTapManager"] as? [String: Any],
-               let processed = etm["eventsProcessed"] as? Int,
-               let running = etm["isRunning"] as? Bool,
-               running, processed == 0 {
-                self.runFixPermissionsScript()
-                self.openAccessibilitySettings()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.openInputMonitoringSettings()
-                }
-                self.scheduleRetry()
-            }
-        }
+        // Эта функция больше не используется, логика проверки событий интегрирована в scheduleRetry
+        logDebug("⚠️ scheduleEventsCheck устарел, используйте scheduleRetry")
     }
     
     func showPermissionsAlert() {
@@ -430,80 +594,84 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return isGranted
     }
     
-    func checkAccessibilityPermissions() {
-        _ = AXIsProcessTrusted()
-    }
 
-    func checkInputMonitoringPermissions() {
-        let access = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-        if access == kIOHIDAccessTypeGranted {
-            return
-        }
 
-        IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            let recheck = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)
-            if recheck != kIOHIDAccessTypeGranted {
-                self.showInputMonitoringAlert()
-            }
-        }
-    }
 
-    func showInputMonitoringAlert() {
-        DispatchQueue.main.async {
-            let alert = NSAlert()
-            alert.messageText = "Требуется мониторинг ввода"
-            alert.informativeText = "BabylonFish 3.0 видит клавиши-модификаторы (Shift), но macOS блокирует обычные нажатия клавиш.\n\nПерейдите в Системные настройки -> Конфиденциальность и безопасность -> Мониторинг ввода и включите BabylonFish.\n\nЕсли BabylonFish нет в списке, добавьте его с помощью кнопки '+'."
-            alert.alertStyle = .critical
-            alert.addButton(withTitle: "Открыть настройки")
-            alert.addButton(withTitle: "Позже")
 
-            let response = alert.runModal()
-            if response == .alertFirstButtonReturn {
-                let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent")!
-                NSWorkspace.shared.open(url)
-            }
-        }
-    }
     
     private func runFixPermissionsScript() {
-        var scriptPath = "\(FileManager.default.currentDirectoryPath)/fix_permissions.sh"
+        logDebug("=== Запуск безопасного скрипта сброса прав ===")
         
-        // Check if script exists in Resources
-        if let resourcePath = Bundle.main.path(forResource: "fix_permissions", ofType: "sh") {
+        // Сначала пробуем безопасный скрипт
+        var scriptPath = "\(FileManager.default.currentDirectoryPath)/fix_permissions_safe.sh"
+        
+        // Проверяем наличие скрипта в Resources
+        if let resourcePath = Bundle.main.path(forResource: "fix_permissions_safe", ofType: "sh") {
             scriptPath = resourcePath
         }
         
-        if FileManager.default.fileExists(atPath: scriptPath) {
-            logDebug("Running fix permissions script: \(scriptPath)")
+        guard FileManager.default.fileExists(atPath: scriptPath) else {
+            logDebug("❌ Скрипт сброса прав не найден: \(scriptPath)")
+            
+            DispatchQueue.main.async {
+                let alert = NSAlert()
+                alert.messageText = "Скрипт не найден"
+                alert.informativeText = "Скрипт сброса прав не найден.\n\nСоздайте fix_permissions_safe.sh в текущей директории."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+            }
+            return
+        }
+        
+        logDebug("✅ Найден скрипт: \(scriptPath)")
+        
+        // Запускаем скрипт в фоновом потоке с защитой от зависаний
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
             
             let task = Process()
             task.launchPath = "/bin/bash"
             task.arguments = [scriptPath]
             
-            do {
-                try task.run()
-                logDebug("Fix permissions script launched")
-                
-                // Schedule retry after script runs
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-                    self.scheduleRetry()
-                }
-            } catch {
-                logDebug("Failed to run fix script: \(error)")
-            }
-        } else {
-            logDebug("Fix permissions script not found at: \(scriptPath)")
+            // Настраиваем таймаут для защиты от зависаний
+            let timeoutSeconds = 45.0
+            let startTime = Date()
             
-            // Show alert that script is missing
-            DispatchQueue.main.async {
-                let alert = NSAlert()
-                alert.messageText = "Скрипт не найден"
-                alert.informativeText = "Скрипт fix_permissions.sh не найден в текущей директории.\n\nСоздайте его с помощью команды в Терминале."
-                alert.alertStyle = .warning
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
+            do {
+                logDebug("🚀 Запускаем скрипт с таймаутом \(timeoutSeconds) секунд...")
+                try task.run()
+                
+                // Мониторим выполнение с таймаутом
+                while task.isRunning {
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    
+                    if elapsed > timeoutSeconds {
+                        logDebug("⚠️ Таймаут скрипта (\(timeoutSeconds) секунд)! Прерываем...")
+                        task.terminate()
+                        break
+                    }
+                    
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+                
+                task.waitUntilExit()
+                let exitCode = task.terminationStatus
+                
+                if exitCode == 0 {
+                    logDebug("✅ Скрипт успешно завершен (код: \(exitCode))")
+                } else {
+                    logDebug("⚠️ Скрипт завершен с кодом ошибки: \(exitCode)")
+                }
+                
+            } catch {
+                logDebug("❌ Ошибка запуска скрипта: \(error)")
+            }
+            
+            // Планируем повторную проверку прав
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.scheduleRetry()
             }
         }
     }

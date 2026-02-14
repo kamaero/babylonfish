@@ -67,34 +67,39 @@ class BabylonFishEngine {
         
         logDebug("BabylonFishEngine: Starting version 3.0...")
         
-        // Применяем конфигурацию
-        applyConfiguration()
-        
-        // Включаем мониторинг производительности
-        performanceMonitor.setEnabled(config.performance.enablePerformanceMonitoring)
-        
-        // Инициализируем основные компоненты
-        initializeCoreComponents()
-        
-        // Запускаем event tap (если настроен)
-        if let eventTapManager = eventTapManager {
-            let success = eventTapManager.start()
-            if success {
-                isRunning = true
-                startTime = Date()
-                logDebug("BabylonFishEngine: Started successfully with event tap")
-            } else {
-                logDebug("BabylonFishEngine: Failed to start event tap, running in configuration mode")
-                isRunning = true
-                startTime = Date()
+        do {
+            // Применяем конфигурацию
+            try applyConfiguration()
+            
+            // Включаем мониторинг производительности
+            performanceMonitor.setEnabled(config.performance.enablePerformanceMonitoring)
+            
+            // Инициализируем основные компоненты
+            try initializeCoreComponents()
+            
+            // Запускаем event tap (если настроен)
+            if let eventTapManager = eventTapManager {
+                let success = eventTapManager.start()
+                if success {
+                    isRunning = true
+                    startTime = Date()
+                    logInfo("BabylonFishEngine: Started successfully with event tap")
+                } else {
+                    logWarning("BabylonFishEngine: Failed to start event tap, running in configuration mode")
+                    isRunning = true
+                    startTime = Date()
+                }
+                return success
             }
-            return success
+            
+            logInfo("BabylonFishEngine: Started in configuration mode (no event tap)")
+            isRunning = true
+            startTime = Date()
+            return true
+        } catch {
+            logError(error, context: "Failed to start BabylonFishEngine")
+            return false
         }
-        
-        logDebug("BabylonFishEngine: Started in configuration mode (no event tap)")
-        isRunning = true
-        startTime = Date()
-        return true
     }
     
     /// Останавливает движок
@@ -434,53 +439,58 @@ class BabylonFishEngine {
         }
     }
     
-    private func initializeCoreComponents() {
-        // Инициализируем анализатор контекста
-        contextAnalyzer = ContextAnalyzer()
-        
-        // Настраиваем анализатор контекста на основе конфигурации
-        if let analyzer = contextAnalyzer {
-            analyzer.configure(
-                isEnabled: config.features.enableContextualAnalysis,
-                contextWeight: 0.6,
-                semanticWeight: 0.2,
-                languageWeight: 0.2
-            )
-        }
-        
-        // Инициализируем нейросетевой классификатор языка
-        neuralLanguageClassifier = NeuralLanguageClassifier()
-        if let classifier = neuralLanguageClassifier {
-            // Force enable for testing Stage 3
-            classifier.configure(
-                isEnabled: true, // config.features.enableNeuralLanguageDetection,
-                confidenceThreshold: 0.7
-            )
-        }
-        
-        // Инициализируем корректор опечаток
-        typoCorrector = TypoCorrector()
-        if let corrector = typoCorrector {
-            corrector.configure(
-                isEnabled: config.features.enableTypoCorrection,
-                autoCorrectEnabled: config.exceptions.autoCorrectTypos,
-                suggestionEnabled: true,
-                maxEditDistance: 2,
-                minConfidence: 0.7,
-                contextWeight: 0.3
-            )
-        }
-        
-        // Инициализируем движок автодополнения
-        autoCompleteEngine = AutoCompleteEngine()
-        if let engine = autoCompleteEngine {
-            engine.configure(
-                isEnabled: config.features.enableAutoComplete,
-                maxSuggestions: 5,
-                minPrefixLength: 2,
-                contextWeight: 0.4,
-                learningWeight: 0.3
-            )
+    private func initializeCoreComponents() throws {
+        do {
+            // Инициализируем анализатор контекста
+            contextAnalyzer = ContextAnalyzer()
+            
+            // Настраиваем анализатор контекста на основе конфигурации
+            if let analyzer = contextAnalyzer {
+                try analyzer.configure(
+                    isEnabled: config.features.enableContextualAnalysis,
+                    contextWeight: 0.6,
+                    semanticWeight: 0.2,
+                    languageWeight: 0.2
+                )
+            }
+            
+            // Инициализируем нейросетевой классификатор языка
+            neuralLanguageClassifier = NeuralLanguageClassifier()
+            if let classifier = neuralLanguageClassifier {
+                // Force enable for testing Stage 3
+                try classifier.configure(
+                    isEnabled: true, // config.features.enableNeuralLanguageDetection,
+                    confidenceThreshold: 0.7
+                )
+            }
+            
+            // Инициализируем корректор опечаток
+            typoCorrector = TypoCorrector()
+            if let corrector = typoCorrector {
+                try corrector.configure(
+                    isEnabled: config.features.enableTypoCorrection,
+                    autoCorrectEnabled: config.exceptions.autoCorrectTypos,
+                    suggestionEnabled: true,
+                    maxEditDistance: 2,
+                    minConfidence: 0.7,
+                    contextWeight: 0.3
+                )
+            }
+            
+            // Инициализируем движок автодополнения
+            autoCompleteEngine = AutoCompleteEngine()
+            if let engine = autoCompleteEngine {
+                try engine.configure(
+                    isEnabled: config.features.enableAutoComplete,
+                    maxSuggestions: 5,
+                    minPrefixLength: 2,
+                    contextWeight: 0.4,
+                    learningWeight: 0.3
+                )
+            }
+        } catch {
+            logError(error, context: "Failed to initialize core components")
+            throw EngineError.componentInitializationError(error)
         }
         
         // Инициализируем менеджер обучения
@@ -535,26 +545,40 @@ class BabylonFishEngine {
         """)
     }
     
-    private func applyConfiguration() {
+    private func applyConfiguration() throws {
         logDebug("Applying configuration...")
         
-        // 1. Применяем настройки производительности
-        applyPerformanceSettings()
-        
-        // 2. Применяем настройки кэширования
-        applyCacheSettings()
-        
-        // 3. Применяем настройки функций
-        applyFeatureSettings()
-        
-        // 4. Применяем правила исключений
-        applyExceptionRules()
-        
-        logDebug("Configuration applied successfully")
+        do {
+            // 1. Применяем настройки производительности
+            try applyPerformanceSettings()
+            
+            // 2. Применяем настройки кэширования
+            try applyCacheSettings()
+            
+            // 3. Применяем настройки функций
+            try applyFeatureSettings()
+            
+            // 4. Применяем правила исключений
+            try applyExceptionRules()
+            
+            logInfo("Configuration applied successfully")
+        } catch {
+            logError(error, context: "Failed to apply configuration")
+            throw EngineError.configurationError(error)
+        }
     }
     
-    private func applyPerformanceSettings() {
+    private func applyPerformanceSettings() throws {
         let perf = config.performance
+        
+        // Проверяем валидность настроек производительности
+        guard perf.bufferSize > 0 else {
+            throw EngineError.invalidConfiguration("Buffer size must be greater than 0")
+        }
+        
+        guard perf.maxProcessingTime > 0 else {
+            throw EngineError.invalidConfiguration("Max processing time must be greater than 0")
+        }
         
         // Настраиваем асинхронную обработку
         if !perf.enableAsyncProcessing {
@@ -565,8 +589,13 @@ class BabylonFishEngine {
         logDebug("Performance settings: bufferSize=\(perf.bufferSize), maxProcessingTime=\(perf.maxProcessingTime)s")
     }
     
-    private func applyCacheSettings() {
+    private func applyCacheSettings() throws {
         let cache = config.cache
+        
+        // Проверяем валидность настроек кэша
+        guard cache.cacheTTL >= 0 else {
+            throw EngineError.invalidConfiguration("Cache TTL must be non-negative")
+        }
         
         if !cache.enabled {
             logDebug("Cache disabled")
@@ -576,7 +605,7 @@ class BabylonFishEngine {
         }
     }
     
-    private func applyFeatureSettings() {
+    private func applyFeatureSettings() throws {
         let features = config.features
         
         logDebug("Feature flags:")
@@ -590,7 +619,7 @@ class BabylonFishEngine {
         logDebug("  - Statistics: \(features.enableStatistics)")
     }
     
-    private func applyExceptionRules() {
+    private func applyExceptionRules() throws {
         let exceptions = config.exceptions
         
         logDebug("Exception rules:")
@@ -816,4 +845,14 @@ class BabylonFishEngine {
         stop()
         logDebug("BabylonFishEngine deinitialized")
     }
+}
+
+// MARK: - Ошибки движка
+
+enum EngineError: Error {
+    case invalidConfiguration(String)
+    case configurationError(Error)
+    case componentInitializationError(Error)
+    case eventTapError(String)
+    case permissionError(String)
 }

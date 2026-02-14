@@ -228,20 +228,29 @@ class EventTapManager {
     }
     
     private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        // Защита от слишком частых событий
+        let now = Date().timeIntervalSince1970
+        let timeSinceLastEvent = now - lastEventTime
+        
+        // Если события приходят слишком часто (менее 1ms), пропускаем для защиты от зависаний
+        if timeSinceLastEvent < 0.001 && eventsProcessed > 100 {
+            logDebug("⚠️ СЛИШКОМ ЧАСТЫЕ СОБЫТИЯ: пропускаем для защиты от зависаний")
+            return Unmanaged.passUnretained(event)
+        }
+        
         eventsProcessed += 1
-        lastEventTime = Date().timeIntervalSince1970
+        lastEventTime = now
         
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            let now = Date().timeIntervalSince1970
             let timeSinceLastReenable = now - lastTapReenableTime
             
             // Ограничиваем попытки повторного включения
             if tapReenableAttempts >= maxTapReenableAttempts && timeSinceLastReenable < 5.0 {
-                logDebug("WARNING: Too many tap re-enable attempts (\(tapReenableAttempts)), waiting...")
+                logDebug("⚠️ СЛИШКОМ МНОГО ПОПЫТОК повторного включения (\(tapReenableAttempts)), ждем...")
                 return Unmanaged.passUnretained(event)
             }
             
-            logDebug("WARNING: Event tap disabled by system (type=\(type.rawValue)). Re-enabling... (attempt \(tapReenableAttempts + 1)/\(maxTapReenableAttempts))")
+            logDebug("⚠️ Event tap отключен системой (type=\(type.rawValue)). Повторно включаем... (попытка \(tapReenableAttempts + 1)/\(maxTapReenableAttempts))")
             
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
@@ -250,9 +259,11 @@ class EventTapManager {
                 
                 // Если слишком много попыток, переключаемся в fallback mode
                 if tapReenableAttempts >= maxTapReenableAttempts {
-                    logDebug("Too many tap re-enable failures, switching to fallback mode")
-                    stop()
-                    startFallback()
+                    logDebug("⚠️ СЛИШКОМ МНОГО ОШИБОК повторного включения, переключаемся в fallback mode")
+                    DispatchQueue.main.async { [weak self] in
+                        self?.stop()
+                        self?.startFallback()
+                    }
                 }
             }
             return Unmanaged.passUnretained(event)
@@ -263,8 +274,15 @@ class EventTapManager {
             return Unmanaged.passUnretained(event)
         }
         
-        // Обрабатываем событие
-        let shouldBlock = processEvent(type: type, event: event)
+        // Обрабатываем событие с защитой от зависаний
+        let shouldBlock: Bool
+        do {
+            // Используем try для защиты от исключений
+            shouldBlock = try processEvent(type: type, event: event)
+        } catch {
+            logDebug("❌ ОШИБКА обработки события: \(error)")
+            shouldBlock = false
+        }
         
         if shouldBlock {
             eventsBlocked += 1
@@ -338,61 +356,56 @@ class EventTapManager {
         return false
     }
     
-    private func processEvent(type: CGEventType, event: CGEvent) -> Bool {
+    private func processEvent(type: CGEventType, event: CGEvent) throws -> Bool {
         guard let processor = eventProcessor else {
             logDebug("No EventProcessor set")
             return false
         }
         
-        do {
-            // Конвертируем CGEvent в нашу структуру
-            let keyboardEvent = try convertCGEventToKeyboardEvent(event)
-            
-            // Обрабатываем событие
-            let result = processor.processEvent(keyboardEvent)
-            
-            // Если нужно отправить новые события
-            if !result.eventsToSend.isEmpty {
-                var eventsToSend = result.eventsToSend
-                // Если исходное событие содержит разделитель (unicodeString не пуст), добавим его в конец,
-                // чтобы сохранить границу слова (например, пробел или пунктуацию)
-                if let unicode = event.getUnicodeString(), !unicode.isEmpty {
-                    let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
-                    let downEvent = KeyboardEvent(
-                        keyCode: keyCode,
-                        unicodeString: unicode,
-                        flags: event.flags,
-                        timestamp: 0,
-                        eventType: .keyDown
-                    )
-                    let upEvent = KeyboardEvent(
-                        keyCode: keyCode,
-                        unicodeString: "",
-                        flags: event.flags,
-                        timestamp: 0,
-                        eventType: .keyUp
-                    )
-                    eventsToSend.append(downEvent)
-                    eventsToSend.append(upEvent)
-                }
-                
-                logDebug("Calling sendEvents with \(eventsToSend.count) events")
-                sendEvents(eventsToSend)
-                logDebug("sendEvents completed, blocking original event")
-                return true // Блокируем оригинальное событие
+        // Конвертируем CGEvent в нашу структуру
+        let keyboardEvent = try convertCGEventToKeyboardEvent(event)
+        
+        // Обрабатываем событие
+        let result = processor.processEvent(keyboardEvent)
+        
+        // Если нужно отправить новые события
+        if !result.eventsToSend.isEmpty {
+            var eventsToSend = result.eventsToSend
+            // Если исходное событие содержит разделитель (unicodeString не пуст), добавим его в конец,
+            // чтобы сохранить границу слова (например, пробел или пунктуацию)
+            if let unicode = event.getUnicodeString(), !unicode.isEmpty {
+                let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
+                let downEvent = KeyboardEvent(
+                    keyCode: keyCode,
+                    unicodeString: unicode,
+                    flags: event.flags,
+                    timestamp: 0,
+                    eventType: .keyDown
+                )
+                let upEvent = KeyboardEvent(
+                    keyCode: keyCode,
+                    unicodeString: "",
+                    flags: event.flags,
+                    timestamp: 0,
+                    eventType: .keyUp
+                )
+                eventsToSend.append(downEvent)
+                eventsToSend.append(upEvent)
             }
             
-            // Если нужно заблокировать оригинальное событие (без отправки новых событий)
-            if result.shouldBlockOriginalEvent {
-                logDebug("Blocking original event without sending new events: \(keyboardEvent)")
-                return true
-            }
-            
-            return false
-        } catch {
-            logDebug("Error processing event: \(error)")
-            return false
+            logDebug("Calling sendEvents with \(eventsToSend.count) events")
+            sendEvents(eventsToSend)
+            logDebug("sendEvents completed, blocking original event")
+            return true // Блокируем оригинальное событие
         }
+        
+        // Если нужно заблокировать оригинальное событие (без отправки новых событий)
+        if result.shouldBlockOriginalEvent {
+            logDebug("Blocking original event without sending new events: \(keyboardEvent)")
+            return true
+        }
+        
+        return false
     }
     
     private func convertCGEventToKeyboardEvent(_ event: CGEvent) throws -> KeyboardEvent {
@@ -482,37 +495,75 @@ class EventTapManager {
             return
         }
         
+        // Ограничиваем количество событий для защиты от зависаний
+        let maxEvents = 20
+        let eventsToSend = Array(events.prefix(maxEvents))
+        
+        if events.count > maxEvents {
+            logDebug("⚠️ СЛИШКОМ МНОГО СОБЫТИЙ: \(events.count) > \(maxEvents), отправляем только первые \(maxEvents)")
+        }
+        
         isSendingEvents = true
         defer { isSendingEvents = false }
         
         // Устанавливаем source PID для всех событий как PID BabylonFish
         let currentPid = Int64(getpid())
         
-        for (index, event) in events.enumerated() {
+        // Таймаут для защиты от зависаний
+        let startTime = Date()
+        let timeoutSeconds = 5.0
+        
+        for (index, event) in eventsToSend.enumerated() {
+            // Проверяем таймаут
+            let elapsed = Date().timeIntervalSince(startTime)
+            if elapsed > timeoutSeconds {
+                logDebug("⚠️ ТАЙМАУТ: Отправка событий превысила \(timeoutSeconds) секунд, прерываем")
+                break
+            }
+            
             do {
-                logDebug("[\(index+1)/\(events.count)] Converting event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
+                logDebug("[\(index+1)/\(eventsToSend.count)] Converting event: keyCode=\(event.keyCode), unicode='\(event.unicodeString)', type=\(event.eventType)")
                 let cgEvent = try convertKeyboardEventToCGEvent(event)
                 
                 // Устанавливаем source PID как PID BabylonFish, чтобы shouldIgnoreEvent мог их игнорировать
                 cgEvent.setIntegerValueField(.eventSourceUserData, value: currentPid)
                 
                 let sourcePid = cgEvent.getIntegerValueField(.eventSourceUserData)
-                logDebug("[\(index+1)/\(events.count)] Created CGEvent with source PID: \(sourcePid)")
+                logDebug("[\(index+1)/\(eventsToSend.count)] Created CGEvent with source PID: \(sourcePid)")
                 
-                logDebug("[\(index+1)/\(events.count)] Posting to .cgSessionEventTap...")
-                cgEvent.post(tap: .cgSessionEventTap)
-                logDebug("[\(index+1)/\(events.count)] ✅ POSTED synthetic event")
+                logDebug("[\(index+1)/\(eventsToSend.count)] Posting to .cgSessionEventTap...")
+                
+                // Защита от зависаний при отправке
+                var postSuccess = false
+                let postTimeout = 0.1 // 100ms таймаут на отправку
+                
+                DispatchQueue.global(qos: .userInitiated).async {
+                    cgEvent.post(tap: .cgSessionEventTap)
+                    postSuccess = true
+                }
+                
+                // Ждем завершения отправки с таймаутом
+                let postStart = Date()
+                while !postSuccess && Date().timeIntervalSince(postStart) < postTimeout {
+                    Thread.sleep(forTimeInterval: 0.001) // 1ms
+                }
+                
+                if postSuccess {
+                    logDebug("[\(index+1)/\(eventsToSend.count)] ✅ POSTED synthetic event")
+                } else {
+                    logDebug("[\(index+1)/\(eventsToSend.count)] ⚠️ ТАЙМАУТ отправки события")
+                }
                 
                 // Небольшая задержка между событиями для стабильности
-                if index < events.count - 1 {
-                    usleep(1000) // 1ms задержка
+                if index < eventsToSend.count - 1 {
+                    usleep(2000) // 2ms задержка для стабильности
                 }
             } catch {
                 logDebug("❌ Error sending event \(index+1): \(error)")
             }
         }
         
-        logDebug("=== SEND EVENTS COMPLETE: \(events.count) events sent ===")
+        logDebug("=== SEND EVENTS COMPLETE: \(eventsToSend.count)/\(events.count) events sent ===")
     }
     
     private func convertKeyboardEventToCGEvent(_ event: KeyboardEvent) throws -> CGEvent {

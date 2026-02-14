@@ -1,6 +1,5 @@
 import Cocoa
 import SwiftUI
-import UserNotifications
 
 class StatusBarController: NSObject {
     private var statusItem: NSStatusItem!
@@ -127,6 +126,23 @@ class StatusBarController: NSObject {
         let build = info["CFBundleVersion"] as? String ?? "unknown"
         let bundlePath = bundle.bundlePath
         
+        // Получаем дату сборки из файла ресурсов или текущую дату
+        var buildDate = "unknown"
+        if let resourcesPath = bundle.path(forResource: "build_info", ofType: "txt"),
+           let buildInfo = try? String(contentsOfFile: resourcesPath, encoding: .utf8) {
+            // Парсим дату из файла build_info.txt
+            let lines = buildInfo.components(separatedBy: .newlines)
+            for line in lines {
+                if line.contains("Дата:") {
+                    let components = line.components(separatedBy: "Дата:")
+                    if components.count > 1 {
+                        buildDate = components[1].trimmingCharacters(in: .whitespaces)
+                    }
+                    break
+                }
+            }
+        }
+        
         // Форматируем путь для отображения
         let formattedPath: String
         if bundlePath.hasPrefix("/Applications/") {
@@ -142,7 +158,11 @@ class StatusBarController: NSObject {
             formattedPath = bundlePath
         }
         
-        return "BabylonFish v\(version) (\(build)) - \(formattedPath)"
+        if buildDate != "unknown" {
+            return "BabylonFish v\(version) (\(build)) - \(formattedPath)\nСборка: \(buildDate)"
+        } else {
+            return "BabylonFish v\(version) (\(build)) - \(formattedPath)"
+        }
     }
     
     @objc private func openPermissions() {
@@ -165,24 +185,21 @@ class StatusBarController: NSObject {
     }
     
     func showNotification(title: String, message: String) {
-        let center = UNUserNotificationCenter.current()
-        
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if granted {
-                let content = UNMutableNotificationContent()
-                content.title = title
-                content.body = message
-                content.sound = .default
-                
-                let request = UNNotificationRequest(
-                    identifier: UUID().uuidString,
-                    content: content,
-                    trigger: nil
-                )
-                
-                center.add(request)
-            }
+        DispatchQueue.main.async {
+            // Всегда используем fallback метод, так как UNUserNotificationCenter
+            // может вызывать исключения в контексте приложения без бандла
+            self.showFallbackNotification(title: title, message: message)
         }
+    }
+    
+    private func showFallbackNotification(title: String, message: String) {
+        // Fallback метод для показа уведомлений
+        let notification = NSUserNotification()
+        notification.title = title
+        notification.informativeText = message
+        notification.soundName = NSUserNotificationDefaultSoundName
+        
+        NSUserNotificationCenter.default.deliver(notification)
     }
 }
 

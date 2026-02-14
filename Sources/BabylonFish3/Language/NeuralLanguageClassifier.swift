@@ -45,15 +45,28 @@ class NeuralLanguageClassifier {
     /// Настраивает кастомную CoreML модель
     private func setupCustomModel() {
         do {
-            // Try to find the compiled model in the bundle
-            // SwiftPM compiles .mlmodel to .mlmodelc directory structure
-            if let modelUrl = Bundle.module.url(forResource: "BabylonFishClassifier", withExtension: "mlmodelc") {
+            // Пытаемся найти скомпилированную модель
+            // Сначала проверяем Bundle.main (для собранного приложения)
+            if let modelUrl = Bundle.main.url(forResource: "BabylonFishClassifier", withExtension: "mlmodelc") {
                 // Initialize NLModel (since we trained a Text Classifier)
                 let model = try NLModel(contentsOf: modelUrl)
                 self.customModel = model
-                logDebug("Custom CoreML model loaded successfully from \(modelUrl.path)")
+                logDebug("Custom CoreML model loaded successfully from main bundle: \(modelUrl.path)")
             } else {
-                logDebug("Could not find BabylonFishClassifier.mlmodelc in bundle")
+                // Если не в Bundle.main, ищем по относительному пути
+                let currentDir = FileManager.default.currentDirectoryPath
+                let modelPath = "\(currentDir)/Sources/BabylonFish3/Resources/BabylonFishClassifier.mlmodel"
+                let modelUrl = URL(fileURLWithPath: modelPath)
+                
+                if FileManager.default.fileExists(atPath: modelPath) {
+                    // Пытаемся загрузить .mlmodel файл
+                    let compiledModel = try MLModel.compileModel(at: modelUrl)
+                    let model = try NLModel(contentsOf: compiledModel)
+                    self.customModel = model
+                    logDebug("Custom CoreML model compiled and loaded from: \(modelPath)")
+                } else {
+                    logDebug("Could not find BabylonFishClassifier.mlmodel at \(modelPath)")
+                }
             }
         } catch {
             logDebug("Failed to load custom model: \(error)")

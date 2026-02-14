@@ -41,25 +41,32 @@ struct AppConfig: Codable {
     }
     
     /// Мигрирует данные из предыдущих версий
-    static func migrateFromPreviousVersions() {
+    static func migrateFromPreviousVersions() throws {
         // Проверяем, есть ли настройки v2
         if UserDefaults.standard.data(forKey: "babylonfish_config_v2") != nil {
-            migrateFromV2()
+            try migrateFromV2()
         }
         // Проверяем, есть ли настройки v1
         else if UserDefaults.standard.object(forKey: "autoSwitchEnabled") != nil {
-            migrateFromV1()
+            try migrateFromV1()
         }
     }
     
     /// Мигрирует из версии 2
-    private static func migrateFromV2() {
+    private static func migrateFromV2() throws {
         logDebug("Migrating settings from v2 to v3...")
         
-        guard let data = UserDefaults.standard.data(forKey: "babylonfish_config_v2"),
-              let v2Config = try? JSONDecoder().decode(AppConfigV2.self, from: data) else {
-            logDebug("Failed to load v2 config")
-            return
+        guard let data = UserDefaults.standard.data(forKey: "babylonfish_config_v2") else {
+            logError("No v2 config data found")
+            throw MigrationError.noData
+        }
+        
+        let v2Config: AppConfigV2
+        do {
+            v2Config = try JSONDecoder().decode(AppConfigV2.self, from: data)
+        } catch {
+            logError(error, context: "Failed to decode v2 config")
+            throw MigrationError.decodingFailed(error)
         }
         
         var config = AppConfig.default()
@@ -80,11 +87,11 @@ struct AppConfig: Codable {
         // Помечаем миграцию как выполненную
         UserDefaults.standard.set(true, forKey: "migration_v2_to_v3_complete")
         
-        logDebug("Migration from v2 completed successfully")
+        logInfo("Migration from v2 completed successfully")
     }
     
     /// Мигрирует из версии 1
-    private static func migrateFromV1() {
+    private static func migrateFromV1() throws {
         logDebug("Migrating settings from v1 to v3...")
         
         var config = AppConfig.default()
@@ -95,9 +102,14 @@ struct AppConfig: Codable {
         }
         
         // Мигрируем исключения
-        if let exceptionsData = UserDefaults.standard.data(forKey: "exceptions"),
-           let oldExceptions = try? JSONDecoder().decode([String].self, from: exceptionsData) {
-            config.exceptions.wordExceptions.formUnion(oldExceptions)
+        if let exceptionsData = UserDefaults.standard.data(forKey: "exceptions") {
+            do {
+                let oldExceptions = try JSONDecoder().decode([String].self, from: exceptionsData)
+                config.exceptions.wordExceptions.formUnion(oldExceptions)
+            } catch {
+                logError(error, context: "Failed to decode v1 exceptions")
+                // Продолжаем миграцию, так как это не критическая ошибка
+            }
         }
         
         // Мигрируем ignored words
@@ -111,7 +123,7 @@ struct AppConfig: Codable {
         // Помечаем миграцию как выполненную
         UserDefaults.standard.set(true, forKey: "migration_v1_to_v3_complete")
         
-        logDebug("Migration from v1 completed successfully")
+        logInfo("Migration from v1 completed successfully")
     }
 }
 
@@ -356,4 +368,12 @@ struct AppException: Codable {
             action: .suggestOnly
         )
     }
+}
+
+// MARK: - Ошибки миграции
+
+enum MigrationError: Error {
+    case noData
+    case decodingFailed(Error)
+    case saveFailed(Error)
 }

@@ -135,6 +135,13 @@ class BufferManager {
         logDebug("Buffer cleared: had \(charCount) characters, wordBuffer='\(wordBuf)'")
     }
     
+    /// Принудительно завершает текущее слово
+    func forceCompleteCurrentWord() {
+        guard !wordBuffer.isEmpty else { return }
+        completeCurrentWord()
+        logDebug("Word force-completed: '\(previousWords.last ?? "")'")
+    }
+    
     /// Принудительно очищает буфер при начале нового ввода
     func clearForNewInput() {
         let charCount = characterBuffer.count
